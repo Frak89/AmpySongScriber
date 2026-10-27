@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="it"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#0d1120"/><title>AmpySongScriber · Studio audio offline</title>
+<style>
+:root{font-family:system-ui,-apple-system,Roboto,Arial,sans-serif;color-scheme:dark;--gold:#ffc665;--ink:#dce4f7;--dim:#98a6c1;--bg:#0b1020;--card:#151d33}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:radial-gradient(ellipse at top left,#263453 0%,#0c1020 55%) fixed;min-height:100dvh}
+main{max-width:1000px;margin:auto;padding:20px 14px 90px}h1{font-size:clamp(24px,5vw,39px);margin:6px 0;letter-spacing:-1px}h2{font-size:19px}p{line-height:1.5}header{padding:16px 0 20px}header .tag{font-size:10px;letter-spacing:.22em;color:var(--gold);font-weight:800}.sub{color:var(--dim);font-size:14px}
+.card{background:linear-gradient(140deg,#19233b,#101827);border:1px solid #35415a;border-radius:20px;padding:20px;margin:16px 0;box-shadow:0 10px 24px #0004}
+button,.filelabel{background:linear-gradient(120deg,#ffcd71,#f59e31);color:#201809;border:0;border-radius:11px;font-weight:750;padding:12px 15px;font-size:14px;cursor:pointer;min-height:44px}
+button.secondary{background:#222e4a;color:#f5f7ff;border:1px solid #425475}button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #ffcd71}input[type=file]{display:none}.filelabel{display:inline-flex;align-items:center;justify-content:center}
+.actions,.line{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.line{justify-content:space-between}.muted,small{color:var(--dim)}select{background:#222d46;border:1px solid #51607e;border-radius:10px;color:white;padding:12px;font-size:14px;max-width:100%}
+progress{width:100%;height:16px;accent-color:var(--gold);margin:10px 0}.notice{border-left:3px solid var(--gold);padding-left:10px;font-size:13px;color:#d7ddec}
+.track{padding:16px 0;border-top:1px solid #3c4960;display:grid;gap:10px}.track strong{font-size:16px}.track audio{width:100%;height:42px}.track .line button{font-size:12px;padding:9px}
+#score{max-width:100%;overflow-x:auto;border-radius:12px;background:#fff;padding:8px;display:none}#score canvas{max-width:100%;height:auto}
+#status{white-space:pre-wrap;line-height:1.45;font-size:13px;color:#f1d7a6}
+footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
+@media(min-width:700px){main{padding:28px}.track{grid-template-columns:140px 1fr 1fr;align-items:center}.track audio{min-width:180px}}
+</style></head>
+<body><main><header><div class="tag">AMPY LAB · MUSIC ENGINE</div><h1>♫ AmpySongScriber</h1><p class="sub">Studio offline · separazione audio · trascrizione e spartiti · nessun account</p></header>
+<section class="card"><h2>1. Importa il brano</h2><p class="sub">MP3 / WAV / M4A / OGG compatibili con il decoder Android. Elaborazione sul dispositivo, senza upload.</p>
+<div class="actions"><label class="filelabel" for="audiofile">📁 Scegli file audio</label><input id="audiofile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"/><strong id="filename" style="overflow-wrap:anywhere">Nessun brano selezionato</strong></div>
+<audio id="original" controls style="width:100%;margin-top:18px;display:none"></audio></section>
+<section class="card"><h2>2. Separa le tracce audio</h2><p class="sub">HTDemucs ONNX, 4 stems stereo: voce, batteria, basso, altri strumenti. Suoni reali, non sintetizzati.</p>
+<div class="actions"><button id="separate" disabled>🎚️ Separa strumenti</button><button id="zipall" class="secondary" disabled>📦 Scarica WAV in ZIP</button></div>
+<progress id="progress" value="0" max="100" style="display:none"></progress><p id="status" role="status">Modello integrato nella app: nessun server richiesto.</p><div id="tracks"></div></section>
+<section class="card"><h2>3. Trascrivi e genera lo spartito</h2><p class="sub">Basic Pitch analizza le note della traccia scelta. Il risultato è una stima: può richiedere correzioni, soprattutto con batteria e suoni complessi.</p>
+<div class="actions"><select id="trackselect" aria-label="Traccia da trascrivere"><option value="original">Brano originale</option></select><button id="transcribe" disabled>🎼 Crea spartito</button></div>
+<progress id="midiProgress" max="100" value="0" style="display:none"></progress><div id="score"></div>
+<div class="actions" style="margin-top:14px"><button class="secondary" id="pdf" disabled>📄 PDF spartito</button><button class="secondary" id="xml" disabled>🎹 MusicXML · MuseScore</button><button class="secondary" id="midi" disabled>🎵 MIDI</button></div>
+<p class="notice">MusicXML è apribile e modificabile in MuseScore Studio. Il motore desktop GPL di MuseScore non è copiato nell'APK.</p></section>
+<section class="card"><h2>Informazioni</h2><p class="sub">Modulo unico senza login, abbonamenti o limiti di utilizzo imposti dal software. Elaborazioni lunghe richiedono molta RAM, CPU e batteria. Il modello di separazione pesa circa 181 MB per consentire l’uso offline dal primo avvio.</p></section>
+<footer>Songscribe (Gabriel Serna, MIT) · Spleeter (Deezer, MIT, riferimento concettuale) · HTDemucs (Meta, MIT) · Basic Pitch (Spotify, Apache 2.0) · MuseScore Studio (GPLv3, interoperabilità MusicXML)</footer>
+</main><script type="module" src="/src/main.js"></script></body></html>
