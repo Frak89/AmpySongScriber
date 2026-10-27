@@ -11,7 +11,10 @@ button.secondary{background:#222e4a;color:#f5f7ff;border:1px solid #425475}butto
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #ffcd71}input[type=file]{display:none}.filelabel{display:inline-flex;align-items:center;justify-content:center}
 .actions,.line{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.line{justify-content:space-between}.muted,small{color:var(--dim)}select{background:#222d46;border:1px solid #51607e;border-radius:10px;color:white;padding:12px;font-size:14px;max-width:100%}
 progress{width:100%;height:16px;accent-color:var(--gold);margin:10px 0} [hidden]{display:none!important}.notice{border-left:3px solid var(--gold);padding-left:10px;font-size:13px;color:#d7ddec}
-.track{padding:16px 0;border-top:1px solid #3c4960;display:grid;gap:10px}.track strong{font-size:16px}.track audio{width:100%;height:42px}.track .line button{font-size:12px;padding:9px}
+.track{padding:16px 0;border-top:1px solid #3c4960;display:grid;gap:10px}
+.settings{display:flex;flex-wrap:wrap;gap:12px;margin:18px 0}.settings label{display:grid;gap:7px;font-size:12px;color:#cbd5e1}
+.settings input,.settings select{background:#222d46;border:1px solid #51607e;border-radius:8px;color:#fff;padding:10px;min-height:43px;width:130px}
+#instrumentResults ol{margin-top:12px;padding-left:24px;line-height:1.9}.track strong{font-size:16px}.track audio{width:100%;height:42px}.track .line button{font-size:12px;padding:9px}
 #score{max-width:100%;overflow-x:auto;border-radius:12px;background:#fff;padding:8px;display:none}#score canvas{max-width:100%;height:auto}
 #status{white-space:pre-wrap;line-height:1.45;font-size:13px;color:#f1d7a6}
 footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
@@ -22,10 +25,25 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <div class="actions"><label class="filelabel" for="audiofile">📁 Scegli file audio</label><input id="audiofile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"/><strong id="filename" style="overflow-wrap:anywhere">Nessun brano selezionato</strong></div>
 <audio id="original" controls style="width:100%;margin-top:18px;display:none"></audio></section>
 <section class="card"><h2>2. Separa le tracce audio</h2><p class="sub">HTDemucs ONNX, 4 stems stereo: voce, batteria, basso, altri strumenti. Suoni reali, non sintetizzati.</p>
-<div class="actions"><button id="separate" disabled>🎚️ Separa strumenti</button><button id="cancel" class="secondary" hidden>✕ Annulla</button><button id="zipall" class="secondary" disabled>📦 Scarica WAV in ZIP</button></div>
-<progress id="progress" value="0" max="100" style="display:none"></progress><p id="status" role="status">Modello integrato nella app: nessun server richiesto.</p><div id="tracks"></div></section>
-<section class="card"><h2>3. Trascrivi e genera lo spartito</h2><p class="sub">Basic Pitch usa automaticamente audio a 22.050 Hz mono; HTDemucs lavora a 44.100 Hz stereo. Basic Pitch analizza le note della traccia scelta. Il risultato è una stima: può richiedere correzioni, soprattutto con batteria e suoni complessi.</p>
+<div class="actions"><button id="separate" disabled>🎚️ Separa strumenti</button><button id="cancel" class="secondary" hidden>✕ Annulla</button><button id="zipall" class="secondary" disabled>📦 Scarica WAV PCM in ZIP</button></div>
+<progress id="progress" value="0" max="100" style="display:none"></progress><p id="status" role="status">Modello integrato nella app: nessun server richiesto.</p><div id="tracks"></div><div class="actions" style="margin-top:12px"><button id="identify" class="secondary" disabled>🧠 Riconosci strumenti in “Altri” (IA locale)</button></div><div id="instrumentResults" class="sub" aria-live="polite"></div></section>
+<section class="card"><h2>3. Trascrivi e genera lo spartito</h2><p class="sub">Basic Pitch usa automaticamente audio a 22.050 Hz mono; HTDemucs lavora a 44.100 Hz stereo. Basic Pitch riconosce le note della traccia scelta. Partiture ora impaginate con OpenSheetMusicDisplay. Il risultato resta una stima: può richiedere correzioni, soprattutto con batteria e suoni complessi.</p>
 <div class="actions"><select id="trackselect" aria-label="Traccia da trascrivere"><option value="original">Brano originale</option></select><button id="transcribe" disabled>🎼 Crea spartito</button></div>
+<div class="settings">
+ <label>Tempo (BPM)
+  <input id="tempo" type="number" min="40" max="240" value="120" step="1" title="Tempo musicale: correggilo se la partitura non va a tempo"/>
+ </label>
+ <label>Quantizzazione
+  <select id="quantization"><option value="240">1/8</option><option value="120" selected>1/16</option><option value="60">1/32</option></select>
+ </label>
+ <label>Sensibilità note
+  <select id="noteThreshold"><option value="0.22">Alta</option><option value="0.32" selected>Bilanciata</option><option value="0.46">Conservativa</option></select>
+ </label>
+ <label>Durata nota minima
+  <select id="minimumNote"><option value="4">Breve</option><option value="7" selected>Normale</option><option value="11">Lunga</option></select>
+ </label>
+</div>
+<p class="sub">Per uno spartito più fedele seleziona prima una traccia strumentale separata. Il BPM influenza pause e durate; se il tempo reale è diverso, puoi modificarlo e premere “Anteprima MusicXML”.</p>
 <progress id="midiProgress" max="100" value="0" style="display:none"></progress><div id="score"></div>
 <div class="actions" style="margin-top:14px"><button class="secondary" id="preview" disabled>🎼 Anteprima MusicXML</button><button class="secondary" id="pdf" disabled>📄 PDF spartito</button><button class="secondary" id="xml" disabled>🎹 MusicXML · MuseScore</button><button class="secondary" id="midi" disabled>🎵 MIDI</button></div>
 <p class="notice">MusicXML è apribile e modificabile in MuseScore Studio. Il motore desktop GPL di MuseScore non è copiato nell'APK.</p></section>
