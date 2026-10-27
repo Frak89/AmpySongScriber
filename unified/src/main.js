@@ -287,9 +287,10 @@ $('detectBpm').onclick=async()=>{
 };
 
 
-// Render MusicXML locally with OpenSheetMusicDisplay, not an approximate custom
-// staff. Export PDF by capturing each OSMD canvas page.
-let scoreCanvases=[];
+// Professional offline score: OpenSheetMusicDisplay's SVG page renderer.
+// SVG keeps note heads, clefs and staff rules sharp at any zoom and on paper.
+// A4 portrait with consistent margins; PDF uses the same MusicXML as preview.
+let scoreSVGPages=[];
 function notationOptions(){
  return {
   title:scoreTitle,
@@ -307,18 +308,37 @@ async function showAccurateScore(){
  const host=$('score');
  host.replaceChildren();
  host.style.display='block';
- scoreCanvases=[];
+ scoreSVGPages=[];
  const {OpenSheetMusicDisplay}=await import('opensheetmusicdisplay');
  const xml=musicXML();
+ // Render at a fixed print-like width, independent of phone screen dimensions.
+ // OSMD can otherwise compress measures into a narrow mobile view.
+ host.style.width='794px';
+ host.style.maxWidth='none';
  const renderer=new OpenSheetMusicDisplay(host,{
-  autoResize:false,backend:'canvas',drawTitle:true,drawComposer:false,
-  pageFormat:'A4',renderSingleHorizontalStaffline:false
+  autoResize:false,
+  backend:'svg',
+  drawTitle:true,
+  drawComposer:false,
+  pageFormat:'A4_P',
+  renderSingleHorizontalStaffline:false
  });
  await renderer.load(xml);
- renderer.Zoom=.8;
+ renderer.Zoom=0.82;
  renderer.render();
- scoreCanvases=Array.from(host.querySelectorAll('canvas'));
- if(!scoreCanvases.length)throw Error('Il motore spartiti non ha generato alcuna pagina.');
+ scoreSVGPages=Array.from(host.querySelectorAll('svg')).filter(svg=>
+   svg.querySelector('path,line,g') && (svg.getAttribute('width')||svg.viewBox?.baseVal?.width));
+ if(!scoreSVGPages.length)throw Error('Nessuna pagina SVG generata dal motore spartiti.');
+ // Let the preview scroll horizontally on small screens without distorting notes.
+ host.style.width='100%';
+ host.style.overflowX='auto';
+}
+function svgDimensions(svg){
+ const vb=svg.viewBox?.baseVal;
+ const width=vb?.width||parseFloat(svg.getAttribute('width'))||794;
+ const height=vb?.height||parseFloat(svg.getAttribute('height'))||1123;
+ if(!(width>0&&height>0))throw Error('Dimensioni della pagina non valide');
+ return {width,height};
 }
 $('preview').onclick=async()=>{
  if(!currentNotes.length)return;
@@ -339,21 +359,43 @@ $('pdf').onclick=async()=>{
  if(!currentNotes.length)return;
  btn('pdf',false);
  try{
-  // Always recalculate PDF from the same MusicXML used by MuseScore.
+  setStatus('Impaginazione vettoriale MusicXML su fogli A4…');
+  // Load the SVG-to-PDF converter only when requested.
+  await import('svg2pdf.js');
   await showAccurateScore();
-  const pdf=new jsPDF({unit:'mm',format:'a4',compress:true});
-  for(let i=0;i<scoreCanvases.length;i++){
-   if(i)pdf.addPage('a4');
-   const canvas=scoreCanvases[i];
-   const ratio=Math.min(210/canvas.width,297/canvas.height);
-   const width=canvas.width*ratio,height=canvas.height*ratio;
-   const png=canvas.toDataURL('image/png');
-   pdf.addImage(png,'PNG',(210-width)/2,0,width,height,undefined,'FAST');
+  const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true,precision:12});
+  pdf.setProperties({
+   title:scoreTitle,subject:'Spartito da trascrizione automatica',
+   author:'AmpySongScriber',creator:'AmpySongScriber + OpenSheetMusicDisplay'
+  });
+  const pageWidth=210,pageHeight=297;
+  const left=14,right=14,top=17,bottom=16;
+  const availW=pageWidth-left-right,availH=pageHeight-top-bottom;
+  const cleanName=String(scoreTitle||'Spartito').replace(/[^\x20-\x7E]/g,' ').slice(0,65);
+  for(let i=0;i<scoreSVGPages.length;i++){
+   if(i)pdf.addPage('a4','portrait');
+   const svg=scoreSVGPages[i];
+   const {width,height}=svgDimensions(svg);
+   const scale=Math.min(availW/width,availH/height);
+   const drawW=width*scale,drawH=height*scale;
+   const x=left+(availW-drawW)/2;
+   // preserve aspect ratio: never squash pentagrams to page dimensions
+   await pdf.svg(svg,{x,y:top,width:drawW,height:drawH});
+   // Subtle footer stays outside the music area
+   pdf.setDrawColor(205);pdf.setLineWidth(.2);
+   pdf.line(left,pageHeight-12,pageWidth-right,pageHeight-12);
+   pdf.setTextColor(105);pdf.setFont('helvetica','normal');pdf.setFontSize(8);
+   pdf.text('AmpySongScriber  |  '+cleanName,left,pageHeight-8);
+   pdf.text((i+1)+' / '+scoreSVGPages.length,pageWidth-right,pageHeight-8,{align:'right'});
   }
-  await exportFile(pdf.output('blob'),slug(audioFile.name)+'_'+$('trackselect').value+'.pdf');
-  setStatus('PDF dello spartito esportato: '+scoreCanvases.length+' pagine.');
- }catch(e){setStatus('Esportazione PDF fallita: '+e.message);console.error(e);}
- finally{btn('pdf',true);}
+  const blob=pdf.output('blob');
+  if(blob.size<2000)throw Error('PDF vettoriale incompleto');
+  await exportFile(blob,slug(audioFile.name)+'_'+$('trackselect').value+'.pdf');
+  setStatus('PDF vettoriale A4 esportato: '+scoreSVGPages.length+' pagine, margini uniformi, note nitide.');
+ }catch(e){
+  setStatus('PDF non riuscito: '+e.message+'. Prova a esportare MusicXML per completare l’impaginazione in MuseScore.');
+  console.error('Vector score export',e);
+ }finally{btn('pdf',true);}
 };
 $('identify').onclick=async()=>{
  if(!stems.other)return;
