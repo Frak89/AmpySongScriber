@@ -1,0 +1,76 @@
+name: Build AmpySongScriber UNIFIED offline APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'unified/**'
+      - '.github/workflows/unified-android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  unified-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Android 36
+        run: |
+          SDKMGR="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          test -n "$SDKMGR"
+          yes | "$SDKMGR" --licenses >/dev/null || true
+          "$SDKMGR" --install "platforms;android-36" "build-tools;36.0.0"
+      - name: Install frontend and Android dependencies
+        working-directory: unified
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Include runtime, compact pitch model and 4-stem model
+        working-directory: unified
+        run: |
+          mkdir -p public/ort public/models public/basic-pitch
+          cp node_modules/onnxruntime-web/dist/*.wasm public/ort/
+          cp node_modules/@spotify/basic-pitch/model/model.json public/basic-pitch/
+          cp node_modules/@spotify/basic-pitch/model/*.bin public/basic-pitch/
+          curl --retry 4 --retry-delay 8 --connect-timeout 30 -fL \
+            'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx' \
+            -o public/models/htdemucs_embedded.onnx
+          printf 'e5e425c17683f163a472462eb5f5a4ffcd11c31858d57fbd0833b012d8b88077  public/models/htdemucs_embedded.onnx\n' | sha256sum -c -
+          du -h public/models/* public/basic-pitch/*
+      - name: Build embedded offline HTML/JS app
+        working-directory: unified
+        run: npm run build
+      - name: Create Capacitor Android project
+        working-directory: unified
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Assemble Android APK
+        working-directory: unified/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify APK contains required local assets
+        working-directory: unified
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'htdemucs_embedded.onnx'
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'model.json'
+      - name: Upload directly installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AmpySongScriber-UNIFIED-offline-APK
+          path: unified/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
