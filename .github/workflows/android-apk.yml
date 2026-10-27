@@ -29,10 +29,10 @@ jobs:
           repository: gabe-serna/songscribe
           ref: c46a942a00d9445a15895461ae55910da0f3cbd7
           path: source
-      - name: Set up Node 20
+      - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
