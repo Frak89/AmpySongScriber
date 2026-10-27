@@ -1,0 +1,24 @@
+{
+  "name": "ampysongscriber-unified",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host"
+  },
+  "dependencies": {
+    "@spotify/basic-pitch": "1.0.1",
+    "@tonejs/midi": "^2.0.28",
+    "@tensorflow/tfjs": "^3.21.0",
+    "onnxruntime-web": "1.20.1",
+    "jspdf": "^2.5.2",
+    "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.20",
+    "@capacitor/core": "8.0.0",
+    "@capacitor/android": "8.0.0",
+    "@capacitor/cli": "8.0.0"
+  }
+}
