@@ -48,6 +48,26 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <progress id="midiProgress" max="100" value="0" style="display:none"></progress><div id="score"></div>
 <div class="actions" style="margin-top:14px"><button class="secondary" id="preview" disabled>🎼 Anteprima MusicXML</button><button class="secondary" id="pdf" disabled>📄 PDF spartito</button><button class="secondary" id="xml" disabled>🎹 MusicXML · MuseScore</button><button class="secondary" id="midi" disabled>🎵 MIDI</button></div>
 <p class="notice">MusicXML è apribile e modificabile in MuseScore Studio. Il motore desktop GPL di MuseScore non è copiato nell'APK.</p></section>
+<section class="card" id="qwenPanel">
+ <div class="line"><h2>4. AmpyQwen · Assistente musicale locale</h2><span class="tag">GGUF OFFLINE</span></div>
+ <p class="sub">Usa il file <strong>Qwen3-0.6B-Q4_K_M.gguf</strong> che hai già nella cartella Download del telefono. Selezionalo tramite il gestore file Android: non viene copiato nell’APK né inviato su Internet.</p>
+ <div class="actions">
+  <label class="filelabel" for="qwenFile">📂 Seleziona GGUF da Download</label>
+  <input id="qwenFile" type="file" accept=".gguf,application/octet-stream"/>
+  <button id="qwenLoad" disabled>🧠 Avvia Qwen</button>
+  <button id="qwenUnload" class="secondary">♻ Libera RAM</button>
+ </div>
+ <p id="qwenStatus" class="notice" role="status">Modello non caricato. Seleziona il GGUF già salvato in Download.</p>
+ <p class="sub">Qwen interpreta note, classificazioni e metadati estratti dagli altri motori. Non decodifica audio e non sostituisce HTDemucs, Basic Pitch o YAMNet. Per evitare problemi di memoria, caricalo dopo aver completato la separazione.</p>
+ <div class="actions">
+  <button class="secondary" data-ampy-ai="Interpreta le note presenti e segnala possibili errori di intonazione o ritmo basandoti soltanto sui dati disponibili.">🎼 Analizza spartito</button>
+  <button class="secondary" data-ampy-ai="Interpreta gli strumenti probabili rilevati da YAMNet, spiegando i limiti della classificazione.">🎸 Analizza strumenti</button>
+  <button class="secondary" data-ampy-ai="Suggerisci una sequenza di miglioramenti per la trascrizione, considerando strumenti, tempo e numero di note.">🛠️ Consiglia correzioni</button>
+ </div>
+ <textarea id="qwenPrompt" rows="3" placeholder="Chiedi a Qwen di spiegare il risultato o suggerire correzioni musicali…" style="display:block;width:100%;resize:vertical;background:#222d46;color:#fff;border:1px solid #51607e;border-radius:10px;padding:12px;margin:14px 0;font:inherit;"></textarea>
+ <button id="qwenAsk" disabled>Invia a Qwen (offline)</button>
+ <pre id="qwenOutput" aria-live="polite" style="font-family:inherit;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:14px;margin-top:16px;"></pre>
+</section>
 <section class="card"><h2>Informazioni</h2><p class="sub">Modulo unico senza login, abbonamenti o limiti di utilizzo imposti dal software. Elaborazioni lunghe richiedono molta RAM, CPU e batteria. Il modello di separazione pesa circa 181 MB per consentire l’uso offline dal primo avvio.</p></section>
-<footer>Songscribe (Gabriel Serna, MIT) · Spleeter (Deezer, MIT, riferimento concettuale) · HTDemucs (Meta, MIT) · Basic Pitch (Spotify, Apache 2.0) · MuseScore Studio (GPLv3, interoperabilità MusicXML)</footer>
+<footer>Songscribe (Gabriel Serna, MIT) · Spleeter (Deezer, MIT, riferimento concettuale) · HTDemucs (Meta, MIT) · Basic Pitch (Spotify, Apache 2.0) · MuseScore Studio (GPLv3, interoperabilità MusicXML) · wllama/llama.cpp (MIT, Qwen3 GGUF opzionale)</footer>
 </main><script type="module" src="/src/main.js"></script></body></html>
