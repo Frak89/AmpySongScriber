@@ -48,7 +48,7 @@ export function initQwen(getContext){
   status('Caricamento Qwen dal file GGUF locale. Può richiedere molta RAM nel WebView...');
   try{
    if(engine){await engine.exit();engine=null;ready=false;}
-   const {Wllama}=await import('@wllama/wllama');
+   const {Wllama}=await import('@wllama/wllama/esm/index.js');
    engine=new Wllama({default:'./wllama/wllama.wasm'},{allowOffline:true});
    await engine.loadModel([modelFile],{n_ctx:1536,n_batch:128,n_threads:1,n_gpu_layers:0});
    ready=true;ask.disabled=false;
