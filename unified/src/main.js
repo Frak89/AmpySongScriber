@@ -9,11 +9,13 @@ import {Capacitor} from '@capacitor/core';
 import {encodeWav,validateWav} from './wav.js';
 import {createMusicXML} from './notation.js';
 import {recognizeInstruments} from './instrument-ai.js';
+import {initQwen} from './qwen-local.js';
 
 const $=(id)=>document.getElementById(id);
 const btn=(id,v)=>{$(id).disabled=!v};
 let audioFile=null, audioBuffer=null, context=null, stems={},sourceUrl=null;
 let currentMidi=null, currentNotes=[], selectedStem='', scoreTitle='';
+let latestInstrumentPredictions=[];
 let demucsWorker=null, separationStopper=null, separationTimer=null;
 let separationStage='idle', separationProgress=0, separationStart=0;
 const fmtElapsed=(s)=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
@@ -60,7 +62,7 @@ async function exportWav(buf,filename){
 }
 async function openFile(file) {
  if(!file)return;
- audioFile=file; stems={};currentMidi=null;currentNotes=[];
+ audioFile=file; stems={};currentMidi=null;currentNotes=[];latestInstrumentPredictions=[];
  btn('separate',true);btn('transcribe',true);btn('zipall',false);btn('detectBpm',true);
  for(const k of ['pdf','xml','midi','preview'])btn(k,false);
  btn('identify',false);$('instrumentResults').textContent='';
@@ -356,6 +358,7 @@ $('identify').onclick=async()=>{
  const area=$('instrumentResults');area.textContent='Analisi IA locale in corso…';
  try{
   const candidates=await recognizeInstruments(stems.other,s=>area.textContent=s);
+  latestInstrumentPredictions=candidates;
   area.replaceChildren();
   const title=document.createElement('strong');title.textContent='Strumenti probabili in “Altri”';area.append(title);
   const list=document.createElement('ol');
@@ -372,3 +375,18 @@ $('identify').onclick=async()=>{
   area.textContent='Classificazione IA non disponibile: '+String(e?.message||e);
  }finally{btn('identify',true);}
 };
+
+
+// The GGUF is intentionally not bundled into the APK. Android's file chooser
+// grants access to a user-selected local .gguf from Downloads. This AI interprets
+// annotations and never replaces the actual audio DSP/transcription engines.
+initQwen(()=>({
+ song:audioFile?.name||'',
+ durationSec:audioBuffer?.duration||0,
+ tempo:Number($('tempo').value)||120,
+ track:$('trackselect').selectedOptions[0]?.textContent||'',
+ hasStems:Object.keys(stems).length>0,
+ noteCount:currentNotes.length,
+ notes:currentNotes,
+ instrumentPredictions:latestInstrumentPredictions
+}));
