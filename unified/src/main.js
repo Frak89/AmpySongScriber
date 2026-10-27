@@ -6,6 +6,9 @@ import {jsPDF} from 'jspdf';
 import {Filesystem,Directory} from '@capacitor/filesystem';
 import {Share} from '@capacitor/share';
 import {Capacitor} from '@capacitor/core';
+import {encodeWav,validateWav} from './wav.js';
+import {createMusicXML} from './notation.js';
+import {recognizeInstruments} from './instrument-ai.js';
 
 const $=(id)=>document.getElementById(id);
 const btn=(id,v)=>{$(id).disabled=!v};
@@ -32,7 +35,7 @@ async function exportFile(blob,name){
  try {
    // Chunked writes prevent materializing a 100+ MB base64 string on Android.
    const temp='ampy_'+Date.now()+'_'+name.replace(/[^a-z0-9._-]+/gi,'_');
-   const size=1024*1024;let first=true;
+   const size=3*256*1024;let first=true;
    for(let offset=0; offset<blob.size; offset+=size) {
      const bytes=new Uint8Array(await blob.slice(offset,offset+size).arrayBuffer());
      const data=toBase64(bytes);
@@ -41,25 +44,24 @@ async function exportFile(blob,name){
    }
    if(first)await Filesystem.writeFile({directory:Directory.Cache,path:temp,data:''});
    const file=await Filesystem.getUri({directory:Directory.Cache,path:temp});
-   await Share.share({title:'AmpySongScriber · '+name,text:'Salva o condividi '+name,url:file.uri,dialogTitle:'Salva il file'});
+   if(!file.uri)throw new Error('Percorso file non disponibile');
+   // Share as a real file attachment (not as a text URL). Android uses the
+   // FileProvider and the file extension to expose a compatible MIME type.
+   await Share.share({title:'AmpySongScriber · '+name,files:[file.uri],dialogTitle:'Salva o condividi il file'});
  } catch(e){setStatus('Esportazione nativa non riuscita: '+e.message);throw e;}
 }
-function wav(blob){
- const n=blob.length, ch=blob.numberOfChannels, rate=blob.sampleRate,bytes=44+n*ch*2;
- const arr=new ArrayBuffer(bytes),dv=new DataView(arr);let o=0;
- const chars=(s)=>{for(let i=0;i<s.length;i++)dv.setUint8(o++,s.charCodeAt(i))};
- const u32=(x)=>{dv.setUint32(o,x,true);o+=4};const u16=(x)=>{dv.setUint16(o,x,true);o+=2};
- chars('RIFF');u32(bytes-8);chars('WAVEfmt ');u32(16);u16(1);u16(ch);u32(rate);
- u32(rate*ch*2);u16(ch*2);u16(16);chars('data');u32(bytes-44);
- const tracks=Array.from({length:ch},(_,c)=>blob.getChannelData(c));
- for(let i=0;i<n;i++)for(let c=0;c<ch;c++){let x=Math.max(-1,Math.min(1,tracks[c][i]));dv.setInt16(o,x<0?x*32768:x*32767,true);o+=2;}
- return new Blob([arr],{type:'audio/wav'});
+function wav(audioBuffer){return encodeWav(audioBuffer);}
+async function exportWav(buf,filename){
+ const encoded=encodeWav(buf);
+ await validateWav(encoded);
+ return exportFile(encoded,filename);
 }
 async function openFile(file) {
  if(!file)return;
  audioFile=file; stems={};currentMidi=null;currentNotes=[];
  btn('separate',true);btn('transcribe',true);btn('zipall',false);
  for(const k of ['pdf','xml','midi','preview'])btn(k,false);
+ btn('identify',false);$('instrumentResults').textContent='';
  $('score').style.display='none';$('tracks').replaceChildren();
  $('trackselect').innerHTML='<option value="original">Brano originale</option>';
  $('filename').textContent=file.name+' · '+fmt(file.size);
@@ -168,17 +170,17 @@ async function separate(){
     const buff=stems[key];if(!buff)continue;
     const div=document.createElement('div');div.className='track';
     const title=document.createElement('strong');title.textContent=name;
-    const audio=document.createElement('audio');audio.controls=true;audio.src=URL.createObjectURL(wav(buff));
+    const audio=document.createElement('audio');audio.controls=true;audio.src=URL.createObjectURL(encodeWav(buff));
     const controls=document.createElement('div');controls.className='actions';
     const dl=document.createElement('button');dl.className='secondary';dl.textContent='⬇ WAV';
-    dl.onclick=()=>exportFile(wav(buff),slug(audioFile.name)+'_'+key+'.wav');
+    dl.onclick=()=>exportWav(buff,slug(audioFile.name)+'_'+key+'.wav');
     const score=document.createElement('button');score.textContent='🎼 Spartito';score.className='secondary';
     score.onclick=()=>{$('trackselect').value=key;transcribe()};
     controls.append(dl,score);div.append(title,audio,controls);$('tracks').append(div);
     const opt=document.createElement('option');opt.value=key;opt.textContent=name;
     $('trackselect').append(opt);
   }
-  btn('zipall',true);
+  btn('zipall',true);btn('identify',Boolean(stems.other));
   setStatus('Tracce estratte: voce, batteria, basso e altri strumenti. Elaborazione locale completata.');
  }catch(e){
   setStatus('Separazione interrotta: '+(e?.message||e)+'. Se fallisce ancora durante il caricamento, il modello HTDemucs potrebbe esaurire la memoria del WebView.');console.error(e);
@@ -195,7 +197,10 @@ $('zipall').onclick=async()=>{
  btn('zipall',false);setStatus('Preparazione ZIP audio (richiede spazio e RAM)...');
  try{
   const zip=new JSZip();for(const [key] of STEMS){
-   if(stems[key])zip.file(slug(audioFile.name)+'_'+key+'.wav',wav(stems[key]));
+   if(stems[key]){
+     const b=encodeWav(stems[key]);await validateWav(b);
+     zip.file(slug(audioFile.name)+'_'+key+'.wav',b);
+   }
    await sleep();
   }
   const blob=await zip.generateAsync({type:'blob',compression:'STORE'},meta=>setStatus('Creazione ZIP '+Math.round(meta.percent)+'%'));
@@ -224,127 +229,108 @@ async function transcribe(){
   if(pitchBuffer.sampleRate!==22050||pitchBuffer.numberOfChannels!==1)throw new Error('Resampling per Basic Pitch non riuscito');
   setStatus('Trascrizione delle note a 22.050 Hz…');
   await pitch.evaluateModel(pitchBuffer,(f,o,c)=>{frames.push(...f);onsets.push(...o);contours.push(...c)},p=>{progress('midiProgress',Math.round(p*100));setStatus('Trascrizione note · '+Math.round(p*100)+'%')});
-  const raw=noteFramesToTime(addPitchBendsToNoteEvents(contours,outputToNotesPoly(frames,onsets,.35,.3,7)));
+  const threshold=Math.max(.1,Math.min(.8,Number($('noteThreshold').value)||.32));
+  const raw=noteFramesToTime(addPitchBendsToNoteEvents(contours,outputToNotesPoly(frames,onsets,threshold,threshold,Number($('minimumNote').value)||7)));
   currentNotes=raw.filter(x=>x.pitchMidi>=21&&x.pitchMidi<=108&&x.durationSeconds>.045).map(n=>({pitch:n.pitchMidi,start:Math.max(0,n.startTimeSeconds),duration:n.durationSeconds,velocity:Math.min(1,Math.max(.1,n.amplitude||.7))})).sort((a,b)=>a.start-b.start);
-  const midi=new Midi();midi.header.name=scoreTitle;midi.header.setTempo(120);
+  const bpm=Math.max(40,Math.min(240,Number($('tempo').value)||120));
+  const midi=new Midi();midi.header.name=scoreTitle;midi.header.setTempo(bpm);
   const t=midi.addTrack();t.name=which;t.instrument.number=which==='bass'?33:which==='vocals'?53:0;
   for(const n of currentNotes)t.addNote({midi:n.pitch,time:n.start,duration:n.duration,velocity:n.velocity});
   currentMidi=midi;
-  showScore(currentNotes,scoreTitle);for(const k of ['pdf','xml','midi','preview'])btn(k,true);
-  setStatus('Spartito generato: '+currentNotes.length+' note individuate. Esporta in MusicXML per correggerlo con MuseScore.');
+  await showAccurateScore();for(const k of ['pdf','xml','midi','preview'])btn(k,true);
+  setStatus('Spartito MusicXML generato: '+currentNotes.length+' note · '+bpm+' BPM. Esporta PDF e MusicXML oppure modifica tempo/soglia per migliorare il risultato.');
  }catch(e){setStatus('Trascrizione non riuscita: '+(e?.message||e));console.error(e)}
  finally{$('midiProgress').style.display='none';btn('transcribe',true);busy=false;}
 }
 $('transcribe').onclick=transcribe;
 
-// Minimal, interoperable notation renderer: 4/4, tempo 120, quarter-beat quantization.
-// Complex polyphony can be edited in MuseScore via the exported MusicXML.
-function letter(p){const k=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];return k[(p%12+12)%12]+(Math.floor(p/12)-1)}
-const noteNames=['C','C','D','D','E','F','F','G','G','A','A','B'];
-const altered=[0,1,0,1,0,0,1,0,1,0,1,0];
-function roundedNotes(notes){
- const grid=new Map();for(const n of notes){
-  const beat=Math.round(n.start*8)/4; // 120bpm; half-quarter grid
-  if(!grid.has(beat))grid.set(beat,[]);
-  grid.get(beat).push(n);
- }
- return grid;
+// Render MusicXML locally with OpenSheetMusicDisplay, not an approximate custom
+// staff. Export PDF by capturing each OSMD canvas page.
+let scoreCanvases=[];
+function notationOptions(){
+ return {
+  title:scoreTitle,
+  instrument:$('trackselect').selectedOptions[0]?.textContent||'Strumento',
+  bpm:Number($('tempo').value)||120,
+  grid:Number($('quantization').value)||120,
+  bass:$('trackselect').value==='bass'
+ };
 }
-function drawPage(notes,title,page,totalPages){
- const c=document.createElement('canvas');const W=1200,H=1640;c.width=W;c.height=H;
- const x=c.getContext('2d');x.fillStyle='white';x.fillRect(0,0,W,H);x.fillStyle='#101010';
- x.font='bold 31px sans-serif';x.fillText(title.slice(0,62),64,75);
- x.font='17px sans-serif';x.fillText('AmpySongScriber · trascrizione automatica · 4/4 · ♩ = 120',65,112);
- const beatsPerPage=32, section=page*beatsPerPage;
- const grid=roundedNotes(notes);
- const bass=$('trackselect').value==='bass',base=bass?43:64;
- for(let line=0;line<8;line++){
-  const top=190+line*170, left=75,right=1130; x.strokeStyle='#171717';x.lineWidth=1.8;
-  for(let s=0;s<5;s++){x.beginPath();x.moveTo(left,top+s*12);x.lineTo(right,top+s*12);x.stroke()}
-  x.font='58px serif';x.fillText(bass?'𝄢':'𝄞',left+7,top+45);
-  const startBeat=section+line*4;
-  for(let b=0;b<4;b++){
-   if(b>0){const sx=left+85+b*245;x.beginPath();x.moveTo(sx,top);x.lineTo(sx,top+48);x.stroke();}
-   const at=startBeat+b;
-   const group=[...(grid.get(at)||[])].sort((a,b)=>a.pitch-b.pitch);
-   const xx=left+136+b*245;
-   if(!group.length){x.font='25px serif';x.fillText('𝄽',xx,top+29);continue}
-   for(const n of group.slice(0,5)){
-    // Staff steps computed diatonically from E4 (treble) or G2 (bass).
-    const oct=Math.floor(n.pitch/12)-1,diat=[0,0,1,1,2,3,3,4,4,5,5,6][n.pitch%12];
-    const staff=((oct-(bass?2:4))*7+diat-(bass?4:2));
-    const y=top+48-staff*6;
-    x.save();x.translate(xx,y);x.rotate(-.3);x.beginPath();x.ellipse(0,0,10,7,0,0,Math.PI*2);x.fill();x.restore();
-    x.beginPath();x.moveTo(xx+9,y);x.lineTo(xx+9,y-40);x.stroke();
-    if(altered[n.pitch%12]){x.font='20px serif';x.fillText('♯',xx-24,y+5)}
-    if(staff<0){for(let ly=-2;ly>=staff;ly-=2){const q=top+48-ly*6;x.beginPath();x.moveTo(xx-16,q);x.lineTo(xx+16,q);x.stroke()}}
-    if(staff>8){for(let ly=10;ly<=staff;ly+=2){const q=top+48-ly*6;x.beginPath();x.moveTo(xx-16,q);x.lineTo(xx+16,q);x.stroke()}}
-   }
-  }
- }
- x.font='16px sans-serif';x.fillText('Pagina '+(page+1)+' / '+totalPages+' · revisione consigliata in MuseScore',64,1585);
- return c;
-}
-let sheetCanvases=[];
-function showScore(notes,title){
- $('score').replaceChildren();const maxSec=Math.max(0,...notes.map(n=>n.start+n.duration));
- const count=Math.max(1,Math.min(100,Math.ceil(maxSec/16)));
- sheetCanvases=[];
- for(let p=0;p<count;p++){const c=drawPage(notes,title,p,count);sheetCanvases.push(c);$('score').append(c)}
- $('score').style.display='block';
-}
-$('midi').onclick=()=>{if(currentMidi)exportFile(new Blob([currentMidi.toArray()],{type:'audio/midi'}),slug(audioFile.name)+'_'+$('trackselect').value+'.mid')};
-$('pdf').onclick=async()=>{
- if(!sheetCanvases.length)return;
- const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true});
- for(let i=0;i<sheetCanvases.length;i++){
-  if(i)pdf.addPage();pdf.addImage(sheetCanvases[i].toDataURL('image/jpeg',.82),'JPEG',0,0,210,287);
- }
- await exportFile(pdf.output('blob'),slug(audioFile.name)+'_'+$('trackselect').value+'.pdf');
-};
-function esc(s){return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;')}
 function musicXML(){
- const notes=currentNotes, duration=Math.max(1,Math.ceil(Math.max(0,...notes.map(n=>n.start+n.duration))/2));
- const by=roundedNotes(notes), part=[];
- // Quarter notes per beat and 4 beats per measure: chords grouped by beats.
- for(let measure=0;measure<duration;measure++){
-  let content='<measure number="'+(measure+1)+'">';
-  if(measure===0){content+='<attributes><divisions>480</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>'+($('trackselect').value==='bass'?'F':'G')+'</sign><line>'+($('trackselect').value==='bass'?'4':'2')+'</line></clef></attributes>'}
-  for(let beat=0;beat<4;beat++){
-   const bucket=[...(by.get(measure*4+beat)||[])].sort((a,b)=>a.pitch-b.pitch);
-   if(!bucket.length){content+='<note><rest/><duration>480</duration><type>quarter</type></note>';continue}
-   for(let i=0;i<Math.min(8,bucket.length);i++){
-    const pitch=bucket[i].pitch,pitchClass=pitch%12,oct=Math.floor(pitch/12)-1;
-    content+='<note>'+(i?'<chord/>':'')+'<pitch><step>'+noteNames[pitchClass]+'</step>'+(altered[pitchClass]?'<alter>1</alter>':'')+'<octave>'+oct+'</octave></pitch><duration>480</duration><type>quarter</type></note>';
-   }
-  }
-  content+='</measure>';part.push(content);
- }
- return '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE score-partwise  PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">\n<score-partwise version="4.0"><work><work-title>'+esc(scoreTitle)+'</work-title></work><movement-title>'+esc(scoreTitle)+'</movement-title><identification><creator type="software">AmpySongScriber · MuseScore compatible</creator></identification><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list><score-part id="P1"><part-name>'+esc($('trackselect').selectedOptions[0]?.textContent||'Strumento')+'</part-name><part-abbreviation>Inst.</part-abbreviation><score-instrument id="I1"><instrument-name>Instrument</instrument-name></score-instrument></score-part></part-list><part id="P1">'+part.join('')+'</part></score-partwise>';
+ if(!currentNotes.length)throw Error('Nessuna nota trascritta');
+ return createMusicXML(currentNotes,notationOptions());
 }
-$('xml').onclick=()=>exportFile(new Blob([musicXML()],{type:'application/vnd.recordare.musicxml+xml'}),slug(audioFile.name)+'_'+$('trackselect').value+'.musicxml');
-
-// Optional lazy-loaded score engraving. Uses the open-source BSD-3-Clause
-// OpenSheetMusicDisplay engine. Keeps it out of the audio inference critical path.
+async function showAccurateScore(){
+ const host=$('score');
+ host.replaceChildren();
+ host.style.display='block';
+ scoreCanvases=[];
+ const {OpenSheetMusicDisplay}=await import('opensheetmusicdisplay');
+ const xml=musicXML();
+ const renderer=new OpenSheetMusicDisplay(host,{
+  autoResize:false,backend:'canvas',drawTitle:true,drawComposer:false,
+  pageFormat:'A4',renderSingleHorizontalStaffline:false
+ });
+ await renderer.load(xml);
+ renderer.Zoom=.8;
+ renderer.render();
+ scoreCanvases=Array.from(host.querySelectorAll('canvas'));
+ if(!scoreCanvases.length)throw Error('Il motore spartiti non ha generato alcuna pagina.');
+}
 $('preview').onclick=async()=>{
- if(!currentMidi||!currentNotes.length)return;
+ if(!currentNotes.length)return;
  btn('preview',false);
- try{
-  setStatus('Creazione anteprima MusicXML con OpenSheetMusicDisplay (offline)…');
-  const {OpenSheetMusicDisplay}=await import('opensheetmusicdisplay');
-  const host=$('score');
-  host.replaceChildren();
-  host.style.display='block';
-  const renderer=new OpenSheetMusicDisplay(host,{autoResize:true,backend:'svg',drawTitle:true,drawComposer:false});
-  await renderer.load(musicXML());
-  renderer.render();
-  setStatus('Anteprima MusicXML pronta. Il PDF usa ancora il layout base; esporta MusicXML per modifiche precise in MuseScore.');
- }catch(error){
-  console.warn('OpenSheetMusicDisplay preview error',error);
-  showScore(currentNotes,scoreTitle);
-  setStatus('Anteprima MusicXML non disponibile; ripristinato lo spartito base. Dettaglio: '+String(error?.message||error));
- }finally{
-  btn('preview',true);
- }
+ try{await showAccurateScore();setStatus('Spartito aggiornato con tempo e divisione selezionati.');}
+ catch(e){setStatus('Impossibile disegnare spartito: '+e.message);}
+ finally{btn('preview',true);}
 };
-
+$('xml').onclick=async()=>{
+ try{await exportFile(new Blob([musicXML()],{type:'application/vnd.recordare.musicxml+xml'}),slug(audioFile.name)+'_'+$('trackselect').value+'.musicxml');}
+ catch(e){setStatus('Esportazione MusicXML fallita: '+e.message);}
+};
+$('midi').onclick=async()=>{
+ try{if(!currentMidi)return;await exportFile(new Blob([currentMidi.toArray()],{type:'audio/midi'}),slug(audioFile.name)+'_'+$('trackselect').value+'.mid');}
+ catch(e){setStatus('Esportazione MIDI fallita: '+e.message);}
+};
+$('pdf').onclick=async()=>{
+ if(!currentNotes.length)return;
+ btn('pdf',false);
+ try{
+  // Always recalculate PDF from the same MusicXML used by MuseScore.
+  await showAccurateScore();
+  const pdf=new jsPDF({unit:'mm',format:'a4',compress:true});
+  for(let i=0;i<scoreCanvases.length;i++){
+   if(i)pdf.addPage('a4');
+   const canvas=scoreCanvases[i];
+   const ratio=Math.min(210/canvas.width,297/canvas.height);
+   const width=canvas.width*ratio,height=canvas.height*ratio;
+   const png=canvas.toDataURL('image/png');
+   pdf.addImage(png,'PNG',(210-width)/2,0,width,height,undefined,'FAST');
+  }
+  await exportFile(pdf.output('blob'),slug(audioFile.name)+'_'+$('trackselect').value+'.pdf');
+  setStatus('PDF dello spartito esportato: '+scoreCanvases.length+' pagine.');
+ }catch(e){setStatus('Esportazione PDF fallita: '+e.message);console.error(e);}
+ finally{btn('pdf',true);}
+};
+$('identify').onclick=async()=>{
+ if(!stems.other)return;
+ btn('identify',false);
+ const area=$('instrumentResults');area.textContent='Analisi IA locale in corso…';
+ try{
+  const candidates=await recognizeInstruments(stems.other,s=>area.textContent=s);
+  area.replaceChildren();
+  const title=document.createElement('strong');title.textContent='Strumenti probabili in “Altri”';area.append(title);
+  const list=document.createElement('ol');
+  for(const c of candidates){
+   const li=document.createElement('li');
+   li.textContent=c.name+' · affinità '+Math.round(c.score*100)+'%'+(c.weak?' (bassa confidenza)':'');
+   list.append(li);
+  }
+  area.append(list);
+  const note=document.createElement('p');note.className='sub';
+  note.textContent='YAMNet rileva timbri probabili, non separa ulteriormente i singoli strumenti. I punteggi non rappresentano probabilità certe.';
+  area.append(note);
+ }catch(e){
+  area.textContent='Classificazione IA non disponibile: '+String(e?.message||e);
+ }finally{btn('identify',true);}
+};
