@@ -72,6 +72,13 @@ jobs:
         run: |
           node scripts/test-wav.mjs
           node scripts/test-notation.mjs
+      - name: Bundle local GGUF inference runtime (no model download)
+        working-directory: unified
+        run: |
+          mkdir -p public/wllama
+          test -s node_modules/@wllama/wllama/esm/wasm/wllama.wasm
+          cp node_modules/@wllama/wllama/esm/wasm/wllama.wasm public/wllama/wllama.wasm
+          ls -lh public/wllama/wllama.wasm
       - name: Build embedded offline HTML/JS app
         working-directory: unified
         run: npm run build
@@ -92,6 +99,7 @@ jobs:
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'htdemucs_embedded.onnx'
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'model.json'
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'yamnet/model.json'
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'wllama/wllama.wasm'
       - name: Upload directly installable APK
         uses: actions/upload-artifact@v4
         with:
