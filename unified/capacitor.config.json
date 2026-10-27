@@ -1,0 +1,11 @@
+{
+  "appId": "com.ampy.songscriber",
+  "appName": "AmpySongScriber",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#0a0e18"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
