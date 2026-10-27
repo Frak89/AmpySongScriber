@@ -61,7 +61,7 @@ async function exportWav(buf,filename){
 async function openFile(file) {
  if(!file)return;
  audioFile=file; stems={};currentMidi=null;currentNotes=[];
- btn('separate',true);btn('transcribe',true);btn('zipall',false);
+ btn('separate',true);btn('transcribe',true);btn('zipall',false);btn('detectBpm',true);
  for(const k of ['pdf','xml','midi','preview'])btn(k,false);
  btn('identify',false);$('instrumentResults').textContent='';
  $('score').style.display='none';$('tracks').replaceChildren();
@@ -258,6 +258,29 @@ async function transcribe(){
  finally{$('midiProgress').style.display='none';btn('transcribe',true);busy=false;}
 }
 $('transcribe').onclick=transcribe;
+
+$('detectBpm').onclick=async()=>{
+ if(!audioFile)return;
+ btn('detectBpm',false);
+ try{
+  setStatus('Analisi offline del tempo musicale (estratto di massimo 30 secondi)…');
+  const buf=await decodeAudio();
+  const n=Math.min(buf.length,buf.sampleRate*30);
+  const mono=context.createBuffer(1,n,buf.sampleRate);
+  const target=mono.getChannelData(0);
+  const source=Array.from({length:buf.numberOfChannels},(_,i)=>buf.getChannelData(i));
+  for(let i=0;i<n;i++){
+   let sum=0;for(const ch of source)sum+=ch[i];target[i]=sum/source.length;
+  }
+  const {analyze}=await import('web-audio-beat-detector');
+  const result=await analyze(mono);
+  if(!Number.isFinite(result)||result<40||result>240)throw Error('BPM non rilevabile con affidabilità');
+  $('tempo').value=String(Math.round(result));
+  setStatus('BPM stimato: '+Math.round(result)+'. Se la battuta è sbagliata, correggilo manualmente e premi Anteprima MusicXML.');
+ }catch(e){setStatus('Rilevamento BPM non riuscito: '+String(e?.message||e)+'. Imposta il tempo manualmente.');}
+ finally{btn('detectBpm',true);}
+};
+
 
 // Render MusicXML locally with OpenSheetMusicDisplay, not an approximate custom
 // staff. Export PDF by capturing each OSMD canvas page.
