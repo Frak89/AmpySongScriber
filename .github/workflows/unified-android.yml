@@ -67,6 +67,11 @@ jobs:
               assert hashlib.sha256(raw).hexdigest()==item['sha256'],f"Invalid hash {target}"
               print(target,len(raw),'SHA256 verified')
           PY
+      - name: Verify WAV headers and MusicXML score generator
+        working-directory: unified
+        run: |
+          node scripts/test-wav.mjs
+          node scripts/test-notation.mjs
       - name: Build embedded offline HTML/JS app
         working-directory: unified
         run: npm run build
