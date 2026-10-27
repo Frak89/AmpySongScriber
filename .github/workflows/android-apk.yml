@@ -1,0 +1,85 @@
+name: Build AmpySongScriber APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/android-apk.yml'
+      - 'scripts/**'
+      - 'mobile/**'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk:
+    name: Build installable Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout AmpySongScriber mobile port
+        uses: actions/checkout@v4
+        with:
+          path: mobile-port
+      - name: Checkout original Songscribe frontend matching provided ZIP
+        uses: actions/checkout@v4
+        with:
+          repository: gabe-serna/songscribe
+          ref: c46a942a00d9445a15895461ae55910da0f3cbd7
+          path: source
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android platform 36
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+      - name: Apply mobile source patches
+        run: python3 mobile-port/scripts/prepare.py source
+      - name: Install original frontend
+        working-directory: source
+        run: npm ci --legacy-peer-deps
+      - name: Install Capacitor Android 8
+        working-directory: source
+        run: npm install --no-save --package-lock=false --legacy-peer-deps @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
+      - name: Export static frontend
+        working-directory: source
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_API_BASE_URL: ${{ vars.AMPYSONGSCRIBER_API_BASE_URL }}
+        run: npm run build
+      - name: Generate Android native project
+        working-directory: source
+        run: npx cap add android
+      - name: Enable LAN HTTP backend testing
+        working-directory: source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          s=s.replace('<application', '<application android:usesCleartextTraffic="true"',1)
+          p.write_text(s)
+          PY
+      - name: Build installable APK
+        working-directory: source/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon
+      - name: Verify APK
+        run: test -s source/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AmpySongScriber-Android-debug
+          path: source/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
