@@ -38,10 +38,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Install Android platform 36
-        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+      - name: Configure preinstalled Android SDK and API 36
+        run: |
+          SDKMGR="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          test -n "$SDKMGR"
+          yes | "$SDKMGR" --licenses >/dev/null || true
+          "$SDKMGR" --install "platforms;android-36" "build-tools;36.0.0"
       - name: Apply mobile source patches
         run: python3 mobile-port/scripts/prepare.py source
       - name: Install original frontend
