@@ -43,6 +43,8 @@ async function exportFile(blob,name){
      else await Filesystem.appendFile({directory:Directory.Cache,path:temp,data});
    }
    if(first)await Filesystem.writeFile({directory:Directory.Cache,path:temp,data:''});
+   const stat=await Filesystem.stat({directory:Directory.Cache,path:temp});
+   if(stat.size!==blob.size)throw new Error('File esportato incompleto: '+stat.size+' byte invece di '+blob.size);
    const file=await Filesystem.getUri({directory:Directory.Cache,path:temp});
    if(!file.uri)throw new Error('Percorso file non disponibile');
    // Share as a real file attachment (not as a text URL). Android uses the
@@ -148,7 +150,7 @@ async function runDemucsInWorker(buf){
    }else if(d.type==='error'){
      finish(new Error(d.message));
    }else if(d.type==='done'){
-     finish(null,d.result);
+     terminateDemucsWorker();finish(null,d.result);
    }
   };
   demucsWorker.postMessage({type:'separate',sampleRate:44100,channels},channels.map(c=>c.buffer));
@@ -170,13 +172,26 @@ async function separate(){
     const buff=stems[key];if(!buff)continue;
     const div=document.createElement('div');div.className='track';
     const title=document.createElement('strong');title.textContent=name;
-    const audio=document.createElement('audio');audio.controls=true;audio.src=URL.createObjectURL(encodeWav(buff));
+    const audio=document.createElement('audio');audio.controls=true;audio.preload='none';
+    const listen=document.createElement('button');listen.className='secondary';listen.textContent='▶ Ascolta';
+    listen.onclick=async()=>{
+      if(!audio.src){
+        listen.disabled=true;listen.textContent='Preparazione WAV…';
+        try{
+          const encoded=encodeWav(buff);await validateWav(encoded);
+          audio.src=URL.createObjectURL(encoded);
+          listen.textContent='▶ Ascolta';
+        }catch(e){setStatus('Errore audio: '+String(e?.message||e));}
+        finally{listen.disabled=false;}
+      }
+      if(audio.src)await audio.play().catch(e=>setStatus('Riproduzione audio non riuscita: '+e.message));
+    };
     const controls=document.createElement('div');controls.className='actions';
     const dl=document.createElement('button');dl.className='secondary';dl.textContent='⬇ WAV';
     dl.onclick=()=>exportWav(buff,slug(audioFile.name)+'_'+key+'.wav');
     const score=document.createElement('button');score.textContent='🎼 Spartito';score.className='secondary';
     score.onclick=()=>{$('trackselect').value=key;transcribe()};
-    controls.append(dl,score);div.append(title,audio,controls);$('tracks').append(div);
+    controls.append(listen,dl,score);div.append(title,audio,controls);$('tracks').append(div);
     const opt=document.createElement('option');opt.value=key;opt.textContent=name;
     $('trackselect').append(opt);
   }
