@@ -16,7 +16,8 @@
     "jszip": "^3.10.1",
     "@capacitor/filesystem": "8.0.0",
     "@capacitor/share": "8.0.0",
-    "opensheetmusicdisplay": "2.2.1"
+    "opensheetmusicdisplay": "2.2.1",
+    "web-audio-beat-detector": "^8.2.16"
   },
   "devDependencies": {
     "vite": "^5.4.20",
