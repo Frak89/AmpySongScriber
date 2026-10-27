@@ -59,14 +59,15 @@ export function initQwen(getContext){
    status('Impossibile caricare Qwen: '+String(err?.message||err)+'. Possibile limite RAM/WebAssembly. Separazione e spartiti rimangono disponibili.');
   }finally{pending=false;load.disabled=false;}
  });
- unload.addEventListener('click',async()=>{
+ async function unloadModel(){
   if(pending)return;
   try{
    if(engine)await engine.exit();
    engine=null;ready=false;ask.disabled=true;
-   status('Qwen scaricato dalla RAM. Per riprenderlo seleziona nuovamente il GGUF.');
+   status('Qwen scaricato dalla RAM per consentire elaborazioni audio. Puoi riavviarlo senza riselezionare il file.');
   }catch(err){status('Errore liberando Qwen: '+String(err?.message||err));}
- });
+ }
+ unload.addEventListener('click',unloadModel);
  async function askQwen(question){
   if(!ready||!engine){status('Carica prima il GGUF dalla cartella Download.');return;}
   if(pending)return;
@@ -93,5 +94,5 @@ export function initQwen(getContext){
  document.querySelectorAll('[data-ampy-ai]').forEach(b=>
   b.addEventListener('click',()=>askQwen(b.dataset.ampyAi))
  );
- return {askQwen,isLoaded:()=>ready};
+ return {askQwen,isLoaded:()=>ready,unload:unloadModel};
 }
