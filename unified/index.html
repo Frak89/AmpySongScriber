@@ -32,6 +32,7 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <div class="settings">
  <label>Tempo (BPM)
   <input id="tempo" type="number" min="40" max="240" value="120" step="1" title="Tempo musicale: correggilo se la partitura non va a tempo"/>
+  <button type="button" id="detectBpm" class="secondary" disabled style="padding:7px 9px;font-size:12px">Auto BPM</button>
  </label>
  <label>Quantizzazione
   <select id="quantization"><option value="240">1/8</option><option value="120" selected>1/16</option><option value="60">1/32</option></select>
