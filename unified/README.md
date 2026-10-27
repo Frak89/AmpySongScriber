@@ -1,0 +1,30 @@
+# AmpySongScriber Unified – offline Android
+
+Single Android APK that embeds **both** the four-stem audio-separation model and the note-transcription model at build time. Offline functionality does not require accounts, subscriptions, credits, URLs, or a Python server.
+
+## Precisely what the three uploaded projects contribute
+
+- **Songscribe** (Gabriel Serna, MIT): original frontend idea and project baseline; the unified Android target replaces its server-dependent Next.js interface with a minimal music-focused interface.
+- **Spleeter** (Deezer, MIT): Python/TensorFlow source reviewed; its ZIP does not include trained weights and cannot be packaged directly into a small Android app. Instead the app uses the **HTDemucs ONNX** four-stem separator (Meta, MIT) with browser-DSP from MIT-licensed [sdemux](https://github.com/joverval/sdemux). It outputs original audio as vocals, drums, bass and other WAV stems.
+- **MuseScore Studio** (GPLv3): the native C++/Qt scoring engine is *not* in this APK. The app generates standard MusicXML documents editable in MuseScore; it also generates an offline simple PDF of staff notation.
+- **Spotify Basic Pitch** (Apache 2.0): local model for transcribing audio to MIDI, then MusicXML and PDF.
+
+## Features
+
+Import local music -> Demucs 4-stem WAV isolation -> listen to each track -> share/save individual WAV or ZIP -> run offline Basic Pitch on chosen track -> export instrument MIDI, MusicXML and PDF.
+
+Uses Android sharing dialog to let the user choose a save destination. No arbitrary daily time, transcription, or download quota is imposed. RAM/CPU/storage and decoder format compatibility still limit practical audio duration and inference speed. Demucs weights are ~181 MB, so a truly bundled offline APK cannot be very small.
+
+Score engraving is intentionally basic, quantized to a nominal 120 BPM and 4/4; drums, simultaneous notes, musical rests and advanced notation may need editing in MuseScore. AI audio stems are estimates, not lossless originals. Basic Pitch is less effective on percussion and complex mixed sounds. The app has **not yet been performance-tested on physical Android hardware**.
+
+## Build and install
+
+GitHub Actions -> 'Build AmpySongScriber UNIFIED offline APK' -> successful run -> Artifacts -> 'AmpySongScriber-UNIFIED-offline-APK' -> extract app-debug.apk -> install on device.
+
+Main source: unified/index.html, unified/src/main.js, unified/src/demucs-loader.js.
+
+The GitHub Actions build installs packages and fetches the HTDemucs ONNX model at build time. Source model SHA256: e5e425c17683f163a472462eb5f5a4ffcd11c31858d57fbd0833b012d8b88077.
+
+## Credits and redistribution
+
+Songscribe (MIT, Gabriel Serna), Spleeter (MIT, Deezer), Demucs (MIT, Meta AI), sdemux (MIT, joverval), Basic Pitch (Apache 2.0, Spotify), ONNX Runtime Web (MIT, Microsoft), MuseScore Studio (GPLv3, MuseScore Limited). This distribution does not reuse MuseScore GPLv3 native source code; MusicXML interoperability is a file-format feature, not a copied MuseScore binary.
