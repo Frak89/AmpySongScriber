@@ -59,7 +59,7 @@ async function openFile(file) {
  if(!file)return;
  audioFile=file; stems={};currentMidi=null;currentNotes=[];
  btn('separate',true);btn('transcribe',true);btn('zipall',false);
- for(const k of ['pdf','xml','midi'])btn(k,false);
+ for(const k of ['pdf','xml','midi','preview'])btn(k,false);
  $('score').style.display='none';$('tracks').replaceChildren();
  $('trackselect').innerHTML='<option value="original">Brano originale</option>';
  $('filename').textContent=file.name+' · '+fmt(file.size);
@@ -230,7 +230,7 @@ async function transcribe(){
   const t=midi.addTrack();t.name=which;t.instrument.number=which==='bass'?33:which==='vocals'?53:0;
   for(const n of currentNotes)t.addNote({midi:n.pitch,time:n.start,duration:n.duration,velocity:n.velocity});
   currentMidi=midi;
-  showScore(currentNotes,scoreTitle);for(const k of ['pdf','xml','midi'])btn(k,true);
+  showScore(currentNotes,scoreTitle);for(const k of ['pdf','xml','midi','preview'])btn(k,true);
   setStatus('Spartito generato: '+currentNotes.length+' note individuate. Esporta in MusicXML per correggerlo con MuseScore.');
  }catch(e){setStatus('Trascrizione non riuscita: '+(e?.message||e));console.error(e)}
  finally{$('midiProgress').style.display='none';btn('transcribe',true);busy=false;}
@@ -323,3 +323,28 @@ function musicXML(){
  return '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE score-partwise  PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">\n<score-partwise version="4.0"><work><work-title>'+esc(scoreTitle)+'</work-title></work><movement-title>'+esc(scoreTitle)+'</movement-title><identification><creator type="software">AmpySongScriber · MuseScore compatible</creator></identification><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list><score-part id="P1"><part-name>'+esc($('trackselect').selectedOptions[0]?.textContent||'Strumento')+'</part-name><part-abbreviation>Inst.</part-abbreviation><score-instrument id="I1"><instrument-name>Instrument</instrument-name></score-instrument></score-part></part-list><part id="P1">'+part.join('')+'</part></score-partwise>';
 }
 $('xml').onclick=()=>exportFile(new Blob([musicXML()],{type:'application/vnd.recordare.musicxml+xml'}),slug(audioFile.name)+'_'+$('trackselect').value+'.musicxml');
+
+// Optional lazy-loaded score engraving. Uses the open-source BSD-3-Clause
+// OpenSheetMusicDisplay engine. Keeps it out of the audio inference critical path.
+$('preview').onclick=async()=>{
+ if(!currentMidi||!currentNotes.length)return;
+ btn('preview',false);
+ try{
+  setStatus('Creazione anteprima MusicXML con OpenSheetMusicDisplay (offline)…');
+  const {OpenSheetMusicDisplay}=await import('opensheetmusicdisplay');
+  const host=$('score');
+  host.replaceChildren();
+  host.style.display='block';
+  const renderer=new OpenSheetMusicDisplay(host,{autoResize:true,backend:'svg',drawTitle:true,drawComposer:false});
+  await renderer.load(musicXML());
+  renderer.render();
+  setStatus('Anteprima MusicXML pronta. Il PDF usa ancora il layout base; esporta MusicXML per modifiche precise in MuseScore.');
+ }catch(error){
+  console.warn('OpenSheetMusicDisplay preview error',error);
+  showScore(currentNotes,scoreTitle);
+  setStatus('Anteprima MusicXML non disponibile; ripristinato lo spartito base. Dettaglio: '+String(error?.message||error));
+ }finally{
+  btn('preview',true);
+ }
+};
+
