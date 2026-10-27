@@ -24,6 +24,7 @@ for name in ('utils/getMidi.ts','utils/isolateAudio.ts','utils/getAudioFromUrl.t
   if old not in s:raise ValueError('Upstream API URL changed: '+name)
   return 'import { getApiBaseUrl } from "./mobileApi";\n'+s.replace(old,'$'+'{getApiBaseUrl()}')
  edit(name,patch)
+edit('utils/mergeMidi.ts',lambda s:s.replace('const combinedMidiBuffer = combinedMidi.toArray();','const combinedMidiBuffer = Uint8Array.from(combinedMidi.toArray()).buffer;'))
 edit('app/audio/page.tsx',lambda s:re.sub(r'  // Warn user before leaving the page[\s\S]*?\n  return \(','  return (',s))
 edit('app/audio/AudioForm.tsx',lambda s:s.replace('message = "Failed to isolate audio.";', 'message = error?.message || "Failed to isolate audio.";'))
 edit('components/GetStartedButton.tsx',lambda s:s.replace('href="/audio"','href="/audio/"'))
