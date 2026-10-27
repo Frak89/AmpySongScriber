@@ -16,6 +16,7 @@ const btn=(id,v)=>{$(id).disabled=!v};
 let audioFile=null, audioBuffer=null, context=null, stems={},sourceUrl=null;
 let currentMidi=null, currentNotes=[], selectedStem='', scoreTitle='';
 let latestInstrumentPredictions=[];
+let qwenAssistant=null;
 let demucsWorker=null, separationStopper=null, separationTimer=null;
 let separationStage='idle', separationProgress=0, separationStart=0;
 const fmtElapsed=(s)=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
@@ -162,6 +163,7 @@ async function runDemucsInWorker(buf){
 async function separate(){
  if(busy)return;busy=true;btn('separate',false);
  try {
+  if(qwenAssistant?.isLoaded())await qwenAssistant.unload();
   setStatus('Decodifica audio in corso…');progress('progress',2);
   const buf=await decodeAudio();
   if(buf.sampleRate!==44100||buf.numberOfChannels!==2)
@@ -229,6 +231,7 @@ $('zipall').onclick=async()=>{
 async function transcribe(){
  if(busy)return;busy=true;btn('transcribe',false);
  try{
+  if(qwenAssistant?.isLoaded())await qwenAssistant.unload();
   const which=$('trackselect').value;
   if(which==='drums')setStatus('La trascrizione della batteria con Basic Pitch è indicativa, non una notazione ritmica dedicata.');
   const buf=which==='original'?await decodeAudio():stems[which];
@@ -380,7 +383,7 @@ $('identify').onclick=async()=>{
 // The GGUF is intentionally not bundled into the APK. Android's file chooser
 // grants access to a user-selected local .gguf from Downloads. This AI interprets
 // annotations and never replaces the actual audio DSP/transcription engines.
-initQwen(()=>({
+qwenAssistant=initQwen(()=>({
  song:audioFile?.name||'',
  durationSec:audioBuffer?.duration||0,
  tempo:Number($('tempo').value)||120,
