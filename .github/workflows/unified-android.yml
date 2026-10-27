@@ -48,6 +48,25 @@ jobs:
             -o public/models/htdemucs_embedded.onnx
           printf 'e5e425c17683f163a472462eb5f5a4ffcd11c31858d57fbd0833b012d8b88077  public/models/htdemucs_embedded.onnx\n' | sha256sum -c -
           du -h public/models/* public/basic-pitch/*
+      - name: Bundle offline YAMNet instrument classifier (Apache 2.0)
+        working-directory: unified
+        run: |
+          mkdir -p public/yamnet
+          python3 - <<'PY'
+          import json,urllib.request,hashlib,pathlib
+          manifest_url='https://raw.githubusercontent.com/abulhawa/miccheck/main/apps/web/public/models/manifest.json'
+          manifest=json.load(urllib.request.urlopen(manifest_url,timeout=30))
+          base='https://raw.githubusercontent.com/abulhawa/miccheck/main/apps/web/public/models/'
+          for item in manifest['files']:
+              if not item['path'].startswith('yamnet/'):continue
+              target=pathlib.Path('public')/item['path']
+              target.parent.mkdir(parents=True,exist_ok=True)
+              urllib.request.urlretrieve(base+item['path'],target)
+              raw=target.read_bytes()
+              assert len(raw)==item['bytes'],f"Invalid size {target}"
+              assert hashlib.sha256(raw).hexdigest()==item['sha256'],f"Invalid hash {target}"
+              print(target,len(raw),'SHA256 verified')
+          PY
       - name: Build embedded offline HTML/JS app
         working-directory: unified
         run: npm run build
@@ -67,6 +86,7 @@ jobs:
           test -s android/app/build/outputs/apk/debug/app-debug.apk
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'htdemucs_embedded.onnx'
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'model.json'
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'yamnet/model.json'
       - name: Upload directly installable APK
         uses: actions/upload-artifact@v4
         with:
