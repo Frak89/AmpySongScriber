@@ -28,3 +28,12 @@ The GitHub Actions build installs packages and fetches the HTDemucs ONNX model a
 ## Credits and redistribution
 
 Songscribe (MIT, Gabriel Serna), Spleeter (MIT, Deezer), Demucs (MIT, Meta AI), sdemux (MIT, joverval), Basic Pitch (Apache 2.0, Spotify), ONNX Runtime Web (MIT, Microsoft), MuseScore Studio (GPLv3, MuseScore Limited). This distribution does not reuse MuseScore GPLv3 native source code; MusicXML interoperability is a file-format feature, not a copied MuseScore binary.
+## Rev5: AmpyQwen local GGUF (experimental)
+
+AmpySongScriber adds an optional **on-device Qwen3-0.6B Q4_K_M assistant**. Tap **Seleziona GGUF da Download** and choose your already-downloaded `Qwen3-0.6B-Q4_K_M.gguf` (~484 MB). Tap **Avvia Qwen**. No GGUF file is shipped inside the APK; no backend or download is required at runtime.
+
+This is a **language model**. It reads the recognized MIDI note metadata, YAMNet classifications and BPM, then offers explanations and correction ideas. It is **not an audio source separator or a pitch detector** and cannot inspect PCM audio by itself. The existing HTDemucs, YAMNet, Basic Pitch, MusicXML and PDF features remain responsible for the actual processing.
+
+Runtime: MIT-licensed `@wllama/wllama` (llama.cpp WebAssembly), bundled locally in the APK. The Qwen assistant supports load, inference and unload. It uses one CPU/WASM thread and a limited context to minimize memory; successful initialization depends on available Android WebView memory/architecture. The system picker must grant access to the GGUF from Downloads. The app automatically unloads Qwen before expensive audio-separation and transcription jobs; the user can load it again afterward. This has not been validated on a physical Pixel 7 Pro.
+
+GGUF access is voluntary, data stays on the device. Qwen suggestions require checking against the real music; never treat guessed instrument labels or notes as authoritative.
