@@ -10,7 +10,7 @@ button,.filelabel{background:linear-gradient(120deg,#ffcd71,#f59e31);color:#2018
 button.secondary{background:#222e4a;color:#f5f7ff;border:1px solid #425475}button:disabled{opacity:.45;cursor:default}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #ffcd71}input[type=file]{display:none}.filelabel{display:inline-flex;align-items:center;justify-content:center}
 .actions,.line{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.line{justify-content:space-between}.muted,small{color:var(--dim)}select{background:#222d46;border:1px solid #51607e;border-radius:10px;color:white;padding:12px;font-size:14px;max-width:100%}
-progress{width:100%;height:16px;accent-color:var(--gold);margin:10px 0}.notice{border-left:3px solid var(--gold);padding-left:10px;font-size:13px;color:#d7ddec}
+progress{width:100%;height:16px;accent-color:var(--gold);margin:10px 0} [hidden]{display:none!important}.notice{border-left:3px solid var(--gold);padding-left:10px;font-size:13px;color:#d7ddec}
 .track{padding:16px 0;border-top:1px solid #3c4960;display:grid;gap:10px}.track strong{font-size:16px}.track audio{width:100%;height:42px}.track .line button{font-size:12px;padding:9px}
 #score{max-width:100%;overflow-x:auto;border-radius:12px;background:#fff;padding:8px;display:none}#score canvas{max-width:100%;height:auto}
 #status{white-space:pre-wrap;line-height:1.45;font-size:13px;color:#f1d7a6}
@@ -18,13 +18,13 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 @media(min-width:700px){main{padding:28px}.track{grid-template-columns:140px 1fr 1fr;align-items:center}.track audio{min-width:180px}}
 </style></head>
 <body><main><header><div class="tag">AMPY LAB · MUSIC ENGINE</div><h1>♫ AmpySongScriber</h1><p class="sub">Studio offline · separazione audio · trascrizione e spartiti · nessun account</p></header>
-<section class="card"><h2>1. Importa il brano</h2><p class="sub">MP3 / WAV / M4A / OGG compatibili con il decoder Android. Elaborazione sul dispositivo, senza upload.</p>
+<section class="card"><h2>1. Importa il brano</h2><p class="sub">MP3 / WAV / M4A / OGG compatibili con il decoder Android. Nessuna conversione manuale: l’app adatta automaticamente la frequenza di campionamento per i due modelli.</p>
 <div class="actions"><label class="filelabel" for="audiofile">📁 Scegli file audio</label><input id="audiofile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"/><strong id="filename" style="overflow-wrap:anywhere">Nessun brano selezionato</strong></div>
 <audio id="original" controls style="width:100%;margin-top:18px;display:none"></audio></section>
 <section class="card"><h2>2. Separa le tracce audio</h2><p class="sub">HTDemucs ONNX, 4 stems stereo: voce, batteria, basso, altri strumenti. Suoni reali, non sintetizzati.</p>
-<div class="actions"><button id="separate" disabled>🎚️ Separa strumenti</button><button id="zipall" class="secondary" disabled>📦 Scarica WAV in ZIP</button></div>
+<div class="actions"><button id="separate" disabled>🎚️ Separa strumenti</button><button id="cancel" class="secondary" hidden>✕ Annulla</button><button id="zipall" class="secondary" disabled>📦 Scarica WAV in ZIP</button></div>
 <progress id="progress" value="0" max="100" style="display:none"></progress><p id="status" role="status">Modello integrato nella app: nessun server richiesto.</p><div id="tracks"></div></section>
-<section class="card"><h2>3. Trascrivi e genera lo spartito</h2><p class="sub">Basic Pitch analizza le note della traccia scelta. Il risultato è una stima: può richiedere correzioni, soprattutto con batteria e suoni complessi.</p>
+<section class="card"><h2>3. Trascrivi e genera lo spartito</h2><p class="sub">Basic Pitch usa automaticamente audio a 22.050 Hz mono; HTDemucs lavora a 44.100 Hz stereo. Basic Pitch analizza le note della traccia scelta. Il risultato è una stima: può richiedere correzioni, soprattutto con batteria e suoni complessi.</p>
 <div class="actions"><select id="trackselect" aria-label="Traccia da trascrivere"><option value="original">Brano originale</option></select><button id="transcribe" disabled>🎼 Crea spartito</button></div>
 <progress id="midiProgress" max="100" value="0" style="display:none"></progress><div id="score"></div>
 <div class="actions" style="margin-top:14px"><button class="secondary" id="pdf" disabled>📄 PDF spartito</button><button class="secondary" id="xml" disabled>🎹 MusicXML · MuseScore</button><button class="secondary" id="midi" disabled>🎵 MIDI</button></div>
