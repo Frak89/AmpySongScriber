@@ -78,6 +78,7 @@ jobs:
         run: |
           node scripts/test-wav.mjs
           node scripts/test-notation.mjs
+          node scripts/test-note-cleanup.mjs
           node scripts/test-qwen-history.mjs
       - name: Build embedded offline HTML/JS app
         working-directory: unified
