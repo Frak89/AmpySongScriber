@@ -88,6 +88,10 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
     <input type="checkbox" id="ggufReuse" style="width:21px;height:21px" checked/>
     Usa Qwen3 generativo (GGUF 2) anche per IA 1, con un ruolo diverso
   </label>
+  <label style="display:flex;gap:8px;align-items:center;color:#dce4f7">
+    <input id="ggufSafeFallback" type="checkbox" checked style="width:21px;height:21px"/>
+    Se un GGUF fallisce, continua con filtri conservativi (segnalando che l'IA non ha risposto)
+  </label>
   <button id="ggufRun" disabled>🧠 Avvia / Riprendi blocchi da 10 s</button>
   <button id="ggufPause" class="secondary" disabled>⏸ Pausa dopo questo blocco</button>
   <button id="ggufCleanWav" class="secondary" disabled>⬇ Unisci e salva WAV finale</button>
