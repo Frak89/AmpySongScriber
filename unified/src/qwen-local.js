@@ -245,6 +245,34 @@ export function initQwen(getContext,exportFile){
    saveStatus('Backup della cronologia inviato al selettore Android.');
   }catch(e){saveStatus('Backup non riuscito: '+e.message);}
  });
+ $('qwenRestoreFile').addEventListener('change',async event=>{
+  const file=event.target.files?.[0];if(!file)return;
+  try{
+   if(file.size>12*1048576)throw new Error('Backup oltre 12 MB: suddividi il file');
+   const imported=JSON.parse(await file.text());
+   if(imported.app!=='AmpySongScriber'||!Array.isArray(imported.analyses))
+    throw new Error('Formato backup Qwen non valido');
+   const existing=new Set((await listAnalyses()).map(x=>String(x.createdAt)+'|'+String(x.question)));
+   let recovered=0;
+   for(const item of imported.analyses){
+    const signature=String(item.createdAt)+'|'+String(item.question);
+    if(existing.has(signature))continue;
+    await saveAnalysis({
+     createdAt:String(item.createdAt||new Date().toISOString()),
+     question:String(item.question||''),
+     answer:String(item.answer||''),
+     song:String(item.song||''),
+     track:String(item.track||''),
+     model:String(item.model||'Qwen3'),
+     status:item.status==='error'?'error':item.status==='pending'?'pending':'complete'
+    });
+    recovered++;existing.add(signature);
+   }
+   saveStatus('Ripristino completato: '+recovered+' analisi recuperate, duplicati ignorati.');
+   await refreshHistory();
+  }catch(e){saveStatus('Ripristino non riuscito: '+e.message);}
+  finally{event.target.value='';}
+ });
  try{
   const last=localStorage.getItem('ampy_qwen_last_model_name');
   if(last)status('Ultimo modello scelto: '+last+'. Selezionalo nuovamente da Download per riavviare Qwen.');
