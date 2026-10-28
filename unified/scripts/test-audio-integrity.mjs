@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
- signalStats,downmixChannels,preserveAudibility,assertAudibleWav,completionState
+ signalStats,downmixChannels,preserveAudibility,assertAudibleWav,completionState,normalizeQuietStem
 } from '../src/audio-quality.js';
 import {reconcileInstrumentNotes} from '../src/note-cleanup.js';
 const len=22050;
@@ -17,6 +17,14 @@ const muted=new Float32Array(len);
 const protectedAudio=preserveAudibility(sine,muted);
 assert.equal(protectedAudio.bypassed,true,'DSP must never replace musical signal with silence');
 assert.ok(signalStats(protectedAudio.samples).peak>.20);
+const quiet=Float32Array.from(sine,x=>x*.08);
+const boosted=normalizeQuietStem(quiet);
+assert.equal(boosted.boosted,true,'Quiet real stem must be made audible');
+assert.ok(boosted.after.peak>.1);
+const emptyNormalized=normalizeQuietStem(muted);
+assert.equal(emptyNormalized.inaudible,true);
+assert.equal(emptyNormalized.boosted,false);
+
 assert.throws(()=>assertAudibleWav(muted),/quasi muto/);
 assert.ok(assertAudibleWav(sine).rms>.1);
 const partial=completionState(95*22050,325*22050);
