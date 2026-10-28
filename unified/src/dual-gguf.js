@@ -144,7 +144,7 @@ function reviseNotes(draft,clean,proposals,stem){
  });
 }
 function isolateDraft(notes){
- return notes.slice(0,70).map((n,i)=>({
+ return notes.slice(0,24).map((n,i)=>({
   index:i,midi:n.pitch,start:Number(n.start.toFixed(3)),duration:Number(n.duration.toFixed(3))
  }));
 }
