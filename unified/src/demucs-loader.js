@@ -321,3 +321,45 @@ export function extractStems(result, sampleRate, audioContext) {
   }
   return buffers;
 }
+
+/**
+ * Fallback for WebViews that cannot initialize 6-source HTDemucs.
+ * Uses the verified 4-source model and allocates ONLY the chosen output.
+ * Bass, vocals and drums are truly isolated. Guitar/piano are NOT distinct
+ * sources in this model; do not label residual as an isolated guitar/piano.
+ */
+export async function separateLegacySingleStem(session,audioData,stem,onProgress){
+ const names=['drums','bass','other','vocals'];
+ const selected=names.indexOf(stem);
+ if(selected<0)throw Error('Fallback HTDemucs4 non supporta uno stem separato: '+stem);
+ const length=audioData.length,ch=2,CHUNK=343980,OVERLAP=Math.floor(CHUNK*.25);
+ const STEP=CHUNK-OVERLAP;
+ const chunks=Math.max(1,Math.ceil((length-OVERLAP)/STEP));
+ const out=[new Float32Array(length),new Float32Array(length)];
+ const weights=new Float32Array(length);
+ for(let i=0;i<chunks;i++){
+  const offset=i*STEP;
+  const result=await processChunk(session,audioData,ch,offset,CHUNK);
+  const d=result.data;
+  const dims=result.dims;
+  if(dims?.length!==4||dims[1]!==4||dims[2]!==2)
+    throw Error('Fallback 4 tracce: tensore inatteso '+JSON.stringify(dims));
+  const count=dims[3];
+  for(let k=0;k<count&&offset+k<length;k++){
+   let w=1;
+   if(i>0&&k<OVERLAP)w=k/OVERLAP;
+   if(i<chunks-1&&k>=CHUNK-OVERLAP)w=(CHUNK-k)/OVERLAP;
+   const pos=offset+k;
+   weights[pos]+=w;
+   out[0][pos]+=d[(selected*2)*count+k]*w;
+   out[1][pos]+=d[(selected*2+1)*count+k]*w;
+  }
+  if(typeof result.dispose==='function')result.dispose();
+  onProgress?.({chunk:i+1,total:chunks,percent:Math.round(100*(i+1)/chunks)});
+  await new Promise(r=>setTimeout(r,0));
+ }
+ for(let i=0;i<length;i++){
+  if(weights[i]){out[0][i]/=weights[i];out[1][i]/=weights[i];}
+ }
+ return {stem,channels:out,sampleRate:44100,length,fallback:true};
+}
