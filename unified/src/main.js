@@ -500,6 +500,45 @@ for(const [inputId,labelId] of [['ggufAnalyst','ggufAnalystLabel'],['ggufReviewe
   $(labelId).textContent=f?f.name+' · '+(f.size/1048576).toFixed(0)+' MiB':'Nessun modello selezionato';
  });
 }
+
+// Draft notes per 10-second chunk, then compile one final score from all parts.
+// Keep Basic Pitch reused across chunks; every accepted note comes from audio ML
+// and not directly from a speculative language-model pitch change.
+let dualPitch=null;
+async function draftNotesFromChunk(buffer,stem){
+ if(buffer.sampleRate!==22050||buffer.numberOfChannels!==1)
+  throw Error('Blocco Basic Pitch non mono 22050 Hz');
+ if(!dualPitch)dualPitch=new BasicPitch('/basic-pitch/model.json');
+ const frames=[],onsets=[],contours=[];
+ await dualPitch.evaluateModel(buffer,(f,o,c)=>{
+  frames.push(...f);onsets.push(...o);contours.push(...c);
+ },()=>{});
+ const threshold=Math.max(.1,Math.min(.8,Number($('noteThreshold').value)||.32));
+ const raw=noteFramesToTime(addPitchBendsToNoteEvents(contours,
+   outputToNotesPoly(frames,onsets,threshold,threshold,Number($('minimumNote').value)||7)));
+ return refineInstrumentNotes(raw,stem);
+}
+async function finishScoreFromParts(notes,stem){
+ if(!Array.isArray(notes)||!notes.length)
+  throw Error('Nessuna nota verificata nei blocchi: lo spartito non può essere generato.');
+ currentNotes=notes.filter(n=>n.pitch>=0&&n.pitch<=127&&n.duration>0)
+  .sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+ if(!currentNotes.length)throw Error('Non sono disponibili note da esportare.');
+ $('trackselect').value=stem;
+ scoreTitle=slug(audioFile?.name||'Brano')+' · '+shownStemName(stem);
+ const bpm=Math.max(40,Math.min(240,Number($('tempo').value)||120));
+ const midi=new Midi();midi.header.name=scoreTitle;midi.header.setTempo(bpm);
+ const track=midi.addTrack();track.name=shownStemName(stem);
+ track.instrument.number=stem==='bass'?33:stem==='guitar'?24:stem==='vocals'?53:0;
+ for(const n of currentNotes){
+  track.addNote({midi:n.pitch,time:n.start,duration:n.duration,velocity:n.velocity||.7});
+ }
+ currentMidi=midi;currentMidiStem=stem;
+ await showAccurateScore();
+ for(const key of ['pdf','xml','midi','preview'])btn(key,true);
+ return {noteCount:currentNotes.length,stem};
+}
+
 const dualGGUF=initDualGGUF({
  getSource:stem=>stems[stem],
  getSong:()=>audioFile?.name||'',
@@ -510,9 +549,8 @@ const dualGGUF=initDualGGUF({
   await separate();
   if(!stems[stem])throw Error('Non sono riuscito a isolare '+shownStemName(stem));
  },
- transcribe:async(buffer,stem)=>{
-  return await transcribe(buffer,stem);
- },
+ draftNotes:draftNotesFromChunk,
+ finishScore:finishScoreFromParts,
  exportFile,
  onResult:report=>{
   console.info('Doppia IA: elaborazione completata',report.instrument);
