@@ -74,3 +74,20 @@ export function completionState(actualFrames,expectedFrames){
   processedSeconds:actualFrames/22050,expectedSeconds:expectedFrames/22050,
   percent:Math.round(100*actualFrames/expectedFrames)};
 }
+
+/**
+ * Peak normalization to make quiet but non-silent separated instruments audible.
+ * Does not attempt to "repair" absent instruments: only boosts signals whose
+ * existing peak is clearly above the digital noise floor.
+ */
+export function normalizeQuietStem(samples,{targetPeak=.28,maxGain=10,noiseFloorPeak=.00025}={}){
+ const before=signalStats(samples);
+ if(before.peak<noiseFloorPeak){
+  return {samples,boosted:false,gain:1,inaudible:true,before,after:before};
+ }
+ const gain=before.peak<targetPeak?Math.min(maxGain,targetPeak/before.peak):1;
+ if(gain<=1.025)return {samples,boosted:false,gain:1,inaudible:false,before,after:before};
+ const output=new Float32Array(samples.length);
+ for(let i=0;i<samples.length;i++)output[i]=Math.max(-1,Math.min(1,samples[i]*gain));
+ return {samples:output,boosted:true,gain,inaudible:false,before,after:signalStats(output)};
+}
