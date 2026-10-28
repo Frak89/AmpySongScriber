@@ -31,19 +31,22 @@ const common={
  role:'IA1',system:'system',user:'{ }',
  timeouts:{loadMs:30,firstTokenMs:16,stallMs:18,generationMs:70}
 };
-const waitTooLong=startGGUFWorker({...common,WorkerClass:NeverProducesToken});
+globalThis.Worker=NeverProducesToken;
+const waitTooLong=startGGUFWorker({...common});
 await assert.rejects(waitTooLong.promise,e=>e.ggufTimedOut===true && /nessun primo token/i.test(e.message));
 assert.equal(NeverProducesToken.created[0].terminated,true,'no-token timeout MUST terminate the worker');
 const observed=[];
-const success=startGGUFWorker({...common,WorkerClass:ReturnsTokens,onToken:x=>observed.push(x)});
+globalThis.Worker=ReturnsTokens;
+const success=startGGUFWorker({...common,onToken:x=>observed.push(x)});
 const result=await success.promise;
 assert.equal(result.answer,'{"noise":"low"}');
 assert.equal(observed.join(''),'{"noise":"low"}');
 assert.equal(ReturnsTokens.created[0].terminated,true);
-const load=startGGUFWorker({...common,WorkerClass:FreezesLoading});
+globalThis.Worker=FreezesLoading;
+const load=startGGUFWorker({...common});
 await assert.rejects(load.promise,e=>e.ggufTimedOut===true && /caricamento/i.test(e.message));
 assert.equal(FreezesLoading.created[0].terminated,true);
-const cancelled=startGGUFWorker({...common,WorkerClass:FreezesLoading});
+const cancelled=startGGUFWorker({...common});
 cancelled.cancel();
 await assert.rejects(cancelled.promise,e=>e.userCancelled===true);
 assert.equal(FreezesLoading.created[1].terminated,true);
