@@ -28,7 +28,13 @@ export async function loadDemucs6(onProgress){
   session=await ort.InferenceSession.create(model,{
    executionProviders:['wasm'],graphOptimizationLevel:'basic'
   });
- }catch(e){throw Error('Impossibile inizializzare HTDemucs 6 strumenti ('+e.message+'). Limite memoria WebView possibile.');}
+ }catch(e){
+  const detail=e instanceof Error?(e.stack||e.message):(typeof e==='string'?e:
+   e===undefined?'ONNX Runtime ha rifiutato la sessione senza un messaggio':
+   (()=>{try{return JSON.stringify(e)}catch{return String(e)}})());
+  throw new Error('HTDemucs 6s ONNX/WASM: '+detail+
+   '. Il modello potrebbe superare la memoria WebView, avere operatori non supportati o un errore WASM.');
+ }
  if(session.inputNames.length!==1||session.outputNames.length!==1)
   throw Error('Modello ONNX 6s non compatibile: input/output non riconosciuti.');
  onProgress?.({stage:'ready',percent:100});
