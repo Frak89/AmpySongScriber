@@ -86,7 +86,7 @@ async function inference(file,role,system,user,onStatus){
   const {Wllama}=await import('@wllama/wllama/esm/index.js');
   llm=new Wllama({default:'/wllama/wllama.wasm'},{allowOffline:true});
   onStatus(role+': caricamento di '+file.name+' dalla cartella Download…');
-  await llm.loadModel([file],{n_ctx:1536,n_batch:128,n_threads:1,n_gpu_layers:0});
+  await llm.loadModel([file],{n_ctx:1280,n_batch:64,n_threads:1,n_gpu_layers:0});
   onStatus(role+': modello pronto. Generazione dei parametri…');
   const generated=await llm.createChatCompletion({
    messages:[{role:'system',content:system},{role:'user',content:user+' /no_think'}],
@@ -285,13 +285,31 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
       limits:restrictions(stem)
     };
     say(marker+' · GGUF 1 analizza la bozza dello spartito…');
-    const analyst=await inference(firstFile,marker+' · GGUF 1',
+    let analyst;
+    try{
+     analyst=await inference(firstFile,marker+' · GGUF 1',
       'Sei revisore 1 di spartiti musicali. Ricevi SOLO misure e note MIDI estratte da Basic Pitch, NON audio. Segnala gli errori probabili senza inventare note. Rispondi SOLO JSON: {"instrument":"guitar","suspectedIssue":"testo","noise":"low|medium|high","suggestion":"breve testo"}.',
       JSON.stringify(data),say);
+    }catch(error){
+     if(!$('ggufSafeFallback').checked)throw error;
+     analyst={parsed:{instrument:stem,noise:'unknown',suggestion:'Analisi IA1 non riuscita, preservare le note originali'},
+      skipped:true,error:String(error.message||error)};
+     say('ATTENZIONE: GGUF 1 non ha risposto. Continuo con dati musicali verificabili, senza attribuirgli un analisi inesistente.');
+    }
     say(marker+' · GGUF 2 rivede la prima IA e i parametri DSP…');
-    const reviewer=await inference(secondFile,marker+' · GGUF 2',
+    let reviewer;
+    try{
+     reviewer=await inference(secondFile,marker+' · GGUF 2',
       'Sei revisore 2 di spartiti e parametri DSP. Ricevi note MIDI esistenti e analisi IA1, ma NON ascolti l audio. Non inventare né alterare altezze. Rispondi SOLO JSON: {"strength":0.25,"lowcut":50,"highcut":7000,"suppressUnconfirmed":false,"rejectShorterThan":0.06,"reason":"breve testo"}. Tutti i filtri saranno vincolati a range sicuri.',
       JSON.stringify({...data,analyst:analyst.parsed}),say);
+    }catch(error){
+     if(!$('ggufSafeFallback').checked)throw error;
+     reviewer={parsed:{strength:.12,lowcut:restrictions(stem).defaultLow,
+        highcut:restrictions(stem).defaultHigh,suppressUnconfirmed:false,
+        rejectShorterThan:.055,reason:'DSP conservativo di fallback; GGUF2 non riuscito'},
+       skipped:true,error:String(error.message||error)};
+     say('ATTENZIONE: GGUF 2 non ha risposto. Pulizia FFT conservativa dichiarata come fallback.');
+    }
     const params=bounds(reviewer.parsed,stem);
     say(marker+' · pulizia spettrale FFT e ricontrollo delle note…');
     const cleaned=await cleaningWorker(segment.getChannelData(0).slice(),params,p=>{
@@ -307,8 +325,8 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
       draftNotes:draft,
       finalNoteCount:timed.length,
       finalNotes:timed,
-      analysis:analyst.parsed,
-      review:reviewer.parsed,
+      analysis:{...analyst.parsed,modelWorked:!analyst.skipped,error:analyst.error||null},
+      review:{...reviewer.parsed,modelWorked:!reviewer.skipped,error:reviewer.error||null},
       firstModel:firstFile.name,
       secondModel:secondFile.name,
       params
@@ -319,7 +337,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
       part:'part'+String(chunk+1).padStart(3,'0')+'.wav',fromSec:offset,
       toSec:offset+length/FRAME_RATE,firstModel:firstFile.name,secondModel:secondFile.name,
       draftNotes:draft.length,reviewedNotes:timed.length,
-      first:analyst.parsed,second:reviewer.parsed,dsp:params
+      first:{...analyst.parsed,worked:!analyst.skipped},second:{...reviewer.parsed,worked:!reviewer.skipped},dsp:params
     };
     reportChunks.push(rec);
     download.disabled=false;partsDownload.disabled=false;
