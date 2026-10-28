@@ -11,6 +11,7 @@ import {Capacitor} from '@capacitor/core';
 import JSZip from 'jszip';
 import {encodeWav,validateWav} from './wav.js';
 import {createMusicXML} from './notation.js';
+import {completionState,assertAudibleWav,signalStats} from './audio-quality.js';
 
 const ROOT='AmpySongScriber/parts',LAST=ROOT+'/last-session.json';
 const native=()=>Capacitor.isNativePlatform();
@@ -55,14 +56,20 @@ async function readJSON(path){
  const result=await Filesystem.readFile({path,directory:Directory.Data,encoding:Encoding.UTF8});
  return JSON.parse(String(result.data));
 }
-export async function createPartBuffer(song,stem,restored=null){
+export async function createPartBuffer(song,stem,restored=null,expectedSamples=null){
  const session=restored||{
   schema:1,
   id:new Date().toISOString().replace(/[-:.TZ]/g,'')+'_'+Math.floor(Math.random()*10000),
   song:String(song||'brano').slice(0,180),stem:String(stem),
   sampleRate:22050,channels:1,startedAt:new Date().toISOString(),
+  expectedSamples:expectedSamples||null,
   parts:[],totalSamples:0,complete:false
  };
+ if(Number.isSafeInteger(expectedSamples)&&expectedSamples>0){
+  if(session.expectedSamples&&session.expectedSamples!==expectedSamples)
+   throw Error('Durata sorgente cambiata: non posso riutilizzare parti di una canzone diversa.');
+  session.expectedSamples=expectedSamples;
+ }
  if(native()){
   if(!restored)await Filesystem.mkdir({path:ROOT+'/'+session.id,directory:Directory.Data,recursive:true});
   await writeJSON(LAST,session);
@@ -76,10 +83,14 @@ export async function createPartBuffer(song,stem,restored=null){
   if(buf.sampleRate!==22050||buf.numberOfChannels!==1||buf.length===0)
    throw Error('Parte richiede audio mono a 22050 Hz');
   const partName='part'+String(session.parts.length+1).padStart(3,'0')+'.wav';
+  if(session.expectedSamples&&session.totalSamples+buf.length>session.expectedSamples)
+   throw Error('Blocco WAV supera la durata originale: unione non sicura.');
   const wave=encodeWav(buf);
   await validateWav(wave);
   const bytes=new Uint8Array(await wave.arrayBuffer());
+  const stats=signalStats(buf.getChannelData(0));
   const data={name:partName,frames:buf.length,bytes:bytes.length,startSample:session.totalSamples,
+   rms:stats.rms,peak:stats.peak,db:stats.db,
    draftNoteCount:Number(metadata.draftNoteCount)||0,finalNoteCount:Number(metadata.finalNoteCount)||0,
    draftNotes:Array.isArray(metadata.draftNotes)?metadata.draftNotes.slice(0,500):[],
    finalNotes:Array.isArray(metadata.finalNotes)?metadata.finalNotes.slice(0,500):[],
@@ -107,15 +118,47 @@ export async function createPartBuffer(song,stem,restored=null){
   if(bytes.length!==p.bytes)throw Error('Parte '+p.name+' incompleta');
   return bytes;
  }
- async function joinToFile(){
+ async function joinToFile({allowPartial=false}={}){
   if(!session.parts.length)throw Error('Non ci sono parti da unire');
-  const filename='AmpySongScriber_'+slug(session.song)+'_'+slug(session.stem)+'_cleaned.wav';
+  if(!Number.isSafeInteger(session.expectedSamples)||session.expectedSamples<=0)
+   throw Error('Durata originale sconosciuta: carica di nuovo la canzone prima di unire i WAV.');
+  const completion=completionState(session.totalSamples,session.expectedSamples);
+  if(!allowPartial&&!completion.complete)throw Error(
+   'Brano incompleto: '+completion.processedSeconds.toFixed(1)+' s di '+completion.expectedSeconds.toFixed(1)+
+   ' s ('+completion.percent+'%). Usa ZIP delle parti o WAV PARZIALE, non il WAV finale.');
+  if(!allowPartial&&!session.complete)
+   throw Error('Tutti i campioni risultano presenti, ma la sessione non è stata ancora finalizzata.');
+  let energy=0,peak=0,number=0;
+  // Check actual PCM samples (not just RIFF header); detects previous mute exports.
+  async function checked(i){
+   const bytes=await getPartBytes(i);
+   const p=session.parts[i];
+   const meta=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+   if(bytes.byteLength!==44+p.frames*2||meta.getUint32(24,true)!==22050||
+      meta.getUint16(22,true)!==1||meta.getUint32(40,true)!==p.frames*2)
+    throw Error('Parte '+p.name+' non è PCM16 mono completo.');
+   for(let offset=44;offset+1<bytes.length;offset+=64){
+    const sample=meta.getInt16(offset,true)/32768;
+    peak=Math.max(peak,Math.abs(sample));energy+=sample*sample;number++;
+   }
+   return bytes;
+  }
+  for(let i=0;i<session.parts.length;i++)await checked(i);
+  const rms=Math.sqrt(energy/Math.max(1,number));
+  if(peak<.00012||rms<.000016)
+   throw Error('WAV composto da campioni quasi muti (RMS '+(20*Math.log10(Math.max(1e-9,rms))).toFixed(1)+
+    ' dBFS). Il file non verrà spacciato come audio funzionante. Controlla il modello di separazione.');
+  const fileBase='AmpySongScriber_'+slug(session.song)+'_'+slug(session.stem);
+  const suffix=completion.complete?'_FINAL.wav':
+   '_PARZIALE_'+Math.round(completion.processedSeconds)+'s_di_'+Math.round(completion.expectedSeconds)+'s.wav';
+  const filename=fileBase+suffix;
   if(!native()){
    const pieces=[];
    for(let i=0;i<session.parts.length;i++)pieces.push(await getPartBytes(i));
-   return {filename,blob:new Blob([mergedWaveBytes(pieces)],{type:'audio/wav'})};
+   const blob=new Blob([mergedWaveBytes(pieces)],{type:'audio/wav'});
+   return {filename,blob,completion};
   }
-  const temp='AmpySongScriber_merged_'+session.id+'.wav';
+  const temp=fileBase+'_'+session.id+suffix;
   const head=header(session.totalSamples,22050);
   await Filesystem.writeFile({path:temp,directory:Directory.Cache,data:b64(head),recursive:true});
   for(let i=0;i<session.parts.length;i++){
@@ -126,12 +169,13 @@ export async function createPartBuffer(song,stem,restored=null){
   const expected=44+session.totalSamples*2;
   if(stat.size!==expected)throw Error('WAV unito incompleto '+stat.size+' / '+expected);
   const file=await Filesystem.getUri({path:temp,directory:Directory.Cache});
-  return {filename,uri:file.uri,bytes:expected};
+  return {filename,uri:file.uri,bytes:expected,completion};
  }
- async function shareFinal(){
-  const final=await joinToFile();
+ async function shareFinal({allowPartial=false}={}){
+  const final=await joinToFile({allowPartial});
   if(final.blob)return final;
-  await Share.share({title:final.filename,files:[final.uri],dialogTitle:'Salva WAV completo'});
+  await Share.share({title:final.filename,files:[final.uri],dialogTitle:
+   allowPartial?'Esporta WAV parziale':'Salva WAV completo'});
   return final;
  }
  async function zipParts(){
@@ -163,6 +207,8 @@ export async function createPartBuffer(song,stem,restored=null){
  }
  async function finish(){
   if(!session.parts.length)throw Error('Nessun blocco salvato');
+  if(!Number.isSafeInteger(session.expectedSamples)||session.totalSamples!==session.expectedSamples)
+   throw Error('Impossibile finalizzare: '+session.totalSamples+' campioni su '+session.expectedSamples+' previsti.');
   session.complete=true;session.completedAt=new Date().toISOString();
   await persist();return sessionSummary();
  }
