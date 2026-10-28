@@ -306,12 +306,20 @@ export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,expo
     return;
    }
    const completed=await partBuffer.finish();
-   say('Unione WAV di '+completed.parts.length+' blocchi e generazione dello spartito completo…');
+   say('Unione automatica del WAV finale da '+completed.parts.length+' blocchi…');
+   let merged=null;
+   try{
+    merged=await partBuffer.joinToFile();
+    say('WAV finale già unito e verificato ('+Math.round((merged.bytes||merged.blob?.size||0)/1024)+' KiB). Creo lo spartito…');
+   }catch(err){
+    say('Le parti WAV sono integre, ma la prima unione è fallita: '+err.message+'. Puoi riprovare da Unisci e salva WAV finale.');
+   }
    const finalScore=await finishScore(allNotes,stem);
    if(finalScore===false)throw Error('Generazione spartito finale non riuscita. I WAV parziali sono conservati.');
    const report={
      createdAt:new Date().toISOString(),song:getSong(),instrument:stem,
      chunks:reportChunks,partCount:completed.parts.length,seconds:completed.totalSamples/FRAME_RATE,
+     finalWavBytes:merged?.bytes||merged?.blob?.size||null,
      estimatedNotes:allNotes.length,firstGGUF:firstFile.name,secondGGUF:secondFile.name,
      explanation:'Ogni blocco è stato trascritto preliminarmente, analizzato da GGUF1, revisionato da GGUF2, ripulito con FFT e verificato con Basic Pitch. Note finali unite e esportabili.'
    };
