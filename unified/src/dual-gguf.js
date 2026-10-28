@@ -16,6 +16,18 @@ export const isGenerativeGGUF=f=>Boolean(f&&/\.gguf$/i.test(f.name)
  &&f.size>=80*1024*1024&&f.size<=MAX
  &&!/embedding|embed[-_.]|rerank|reward[-_.]|clip[-_.]|projector/i.test(f.name));
 const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
+export function inspectGGUFSelection(firstSelected,secondSelected,reuse){
+ const second=secondSelected;
+ const first=reuse?second:firstSelected;
+ if(!second)return {ok:false,message:'GGUF 2 non selezionato. Tocca Seleziona GGUF 2 da Download e scegli Qwen3-0.6B-Q4_K_M.gguf. Il file non resta selezionato dopo la reinstallazione.'};
+ if(!isGenerativeGGUF(second))return {ok:false,message:'GGUF 2 non valido: '+second.name+' ('+Math.round(second.size/1048576)+' MiB). Serve un modello generativo .gguf, non Embedding/Reranker.'};
+ if(!reuse&&!first)return {ok:false,message:'GGUF 1 non selezionato. Scegli un secondo GGUF generativo oppure spunta Usa GGUF 2 anche per IA 1.'};
+ if(!reuse&&!isGenerativeGGUF(first))return {ok:false,message:'GGUF 1 non valido: '+first.name+'. Un modello Embedding non genera le analisi. Attiva il riutilizzo di Qwen3 o scegli un modello chat.'};
+ return {ok:true,first,second,reuse,message:reuse?
+  'Modello Qwen3 selezionato: verrà eseguito due volte, in sequenza, nei ruoli IA 1 e IA 2.':
+  'Due modelli GGUF generativi selezionati per le fasi IA 1 e IA 2.'};
+}
+
 const DB=Object.freeze({
   bass:{lowcut:[30,85],highcut:[1800,6500],defaultLow:36,defaultHigh:5000},
   guitar:{lowcut:[45,150],highcut:[3500,9500],defaultLow:70,defaultHigh:8500},
@@ -204,28 +216,29 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
  const diag=initDebugConsole(exportFile);
  const say=text=>{status.textContent=text;diag.line(text);};
  const logText=text=>{log.textContent=text;};
+ function inspect(){
+  return inspectGGUFSelection(fileA.files?.[0],fileB.files?.[0],reuseCheck.checked);
+ }
  function update(){
-  const reuse=$('ggufReuse').checked;
-  const first=reuse?fileB.files?.[0]:fileA.files?.[0];
-  const second=fileB.files?.[0];
-  button.disabled=busy||!isGenerativeGGUF(first)||!isGenerativeGGUF(second);
+  // Critical UX: "Avvia" stays clickable so invalid/missing GGUFs can show
+  // a clear diagnostic. Only an actual running job disables it.
+  button.disabled=busy;
   pause.disabled=!busy;
  }
  const reuseCheck=$('ggufReuse');
- for(const f of [fileA,fileB])f.addEventListener('change',update);
- reuseCheck.addEventListener('change',update);
- // Reject embedding GGUF early, before opening WASM or any audio worker.
- function warnInvalid(){
-  if(fileA.files?.[0]&&!isGenerativeGGUF(fileA.files[0])&&!reuseCheck.checked)
-   say('GGUF 1 non generativo (Embedding/Reranker): scegli un GGUF di chat, oppure abilita il riuso di Qwen3.');
-  else if(fileB.files?.[0]&&!isGenerativeGGUF(fileB.files[0]))
-   say('GGUF 2 non generativo: serve Qwen3-0.6B-Q4_K_M.gguf o equivalente chat.');
-  else if(!busy&&!button.disabled)
-   say(reuseCheck.checked?'Qwen3 verrà usato per entrambi i ruoli, caricandolo due volte in sequenza.':
-       'Due modelli generativi pronti: IA 1 poi IA 2.');
+ function onFilesChanged(){
+  update();
+  if(busy)return;
+  const preflight=inspect();
+  const text=preflight.ok?preflight.message:preflight.message;
+  status.textContent=text;
+  if(preflight.ok)diag.line('Modelli pronti: '+text);
+  else diag.warn('Verifica modelli: '+text);
  }
- for(const f of [fileA,fileB])f.addEventListener('change',warnInvalid);
- reuseCheck.addEventListener('change',warnInvalid);
+ for(const f of [fileA,fileB])f.addEventListener('change',onFilesChanged);
+ reuseCheck.addEventListener('change',onFilesChanged);
+ update();
+ onFilesChanged();
  pause.onclick=()=>{
   if(!busy)return;
   pauseRequested=true;
@@ -283,8 +296,12 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
   const reportChunks=[];
   let processedParts=0;
   try{
-   if(!isGenerativeGGUF(firstFile)||!isGenerativeGGUF(secondFile))
-    throw Error('Serve un GGUF GENERATIVO. Il file Ace-Qwen3-Embedding non produce risposte di chat. Usa Qwen3-0.6B-Q4_K_M.gguf anche in entrambe le fasi.');
+   const preflight=inspect();
+   if(!preflight.ok){
+    diag.warn('PRE-AVVIO: '+preflight.message);
+    throw Error(preflight.message);
+   }
+   diag.line('PRE-AVVIO OK: '+preflight.message);
    say('Lettura durata del brano. L isolamento verrà eseguito 10 secondi alla volta.');
    const duration=await getDuration();
    if(!Number.isFinite(duration)||duration<=0)throw Error('Durata audio non leggibile.');
