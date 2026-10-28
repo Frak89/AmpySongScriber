@@ -96,6 +96,17 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
   <input id="tempo" type="number" min="40" max="240" value="120" step="1" title="Tempo musicale: correggilo se la partitura non va a tempo"/>
   <button type="button" id="detectBpm" class="secondary" disabled style="padding:7px 9px;font-size:12px">Auto BPM</button>
  </label>
+ <label>Indicazione di tempo · Metro
+  <select id="meter">
+   <option value="4/4" selected>4/4 · standard</option>
+   <option value="3/4">3/4 · valzer</option>
+   <option value="6/8">6/8 · composto</option>
+   <option value="5/4">5/4 · irregolare</option>
+   <option value="7/8">7/8 · irregolare</option>
+   <option value="2/4">2/4 · marcia</option>
+   <option value="12/8">12/8 · composto</option>
+  </select>
+ </label>
  <label>Quantizzazione
   <select id="quantization"><option value="240">1/8</option><option value="120" selected>1/16</option><option value="60">1/32</option></select>
  </label>
