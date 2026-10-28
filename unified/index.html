@@ -22,6 +22,12 @@ progress{width:100%;height:16px;accent-color:var(--gold);margin:10px 0} [hidden]
 .ampy-terminal-stats{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 13px;color:#a8bfd5;font:11px ui-monospace,SFMono-Regular,monospace;border-bottom:1px solid #26374d}
 #ggufConsole{min-height:150px;max-height:340px;overflow:auto;margin:0;padding:12px;color:#baf7c5;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
 .ampy-terminal .actions button{font-size:12px;padding:9px 12px}
+.model-library{margin:20px 0;padding:14px;border:1px solid #3c526a;border-radius:15px;background:#151f33}
+.model-catalog-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:10px;margin-top:14px}
+.model-library-card{padding:12px;border:1px solid #435678;border-radius:12px;background:#1c2940;display:grid;align-content:start;gap:8px}
+.model-library-card p{margin:0}.model-library-card a{color:#ffd07a;text-decoration:underline}
+.model-library-card progress{width:100%;height:9px}.model-library-card .actions{gap:6px}
+.model-library-card button{font-size:12px;padding:8px 10px}
 #score{max-width:100%;overflow-x:auto;border-radius:12px;background:#fff;padding:8px;display:none}#score canvas{max-width:100%;height:auto}
 #status{white-space:pre-wrap;line-height:1.45;font-size:13px;color:#f1d7a6}
 footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
@@ -76,7 +82,21 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <section class="card" id="dualPanel">
  <h2>4. Due GGUF offline in sequenza</h2>
  <p class="sub">Due GGUF lavorano in sequenza su ciascun blocco di 10 secondi. Basic Pitch crea una prima bozza di note; GGUF 1 la analizza; GGUF 2 la revisiona e suggerisce filtri conservativi. Il DSP ripulisce l’audio; Basic Pitch ricontrolla le note e il WAV viene salvato come part1.wav, part2.wav… Alla fine le parti vengono unite e viene generato il PDF dello strumento. Nessuna elaborazione continua quando Android chiude l’app: le parti già completate restano disponibili.</p>
- <div class="model-picks">
+ <div class="model-library" id="modelLibrary">
+ <div class="line" style="align-items:center;justify-content:space-between;gap:12px">
+  <h3 style="margin:0;font-size:19px">Libreria IA · scarica modelli online</h3>
+  <button id="modelLibraryRefresh" class="secondary">↻ Aggiorna archivio</button>
+ </div>
+ <p class="sub">Premi <strong>Scarica</strong> su un modello GGUF generativo verificato su Hugging Face: verrà salvato nell’archivio privato dell’app Android e resterà disponibile offline ai riavvii. Serve Internet solo durante il download. Una volta installato, usa i pulsanti <strong>IA 1</strong> e <strong>IA 2</strong> per assegnarlo alla pipeline. Puoi scegliere due modelli diversi oppure riutilizzare lo stesso.</p>
+ <div id="modelCatalog" class="model-catalog-grid"></div>
+ <div class="actions" style="margin-top:12px">
+  <button class="secondary" id="modelLibraryClearRole1">Usa selettore manuale IA 1</button>
+  <button class="secondary" id="modelLibraryClearRole2">Usa selettore manuale IA 2</button>
+ </div>
+ <p id="modelLibraryStatus" role="status" class="notice">Ricerca dei modelli salvati nell’app…</p>
+ <p class="sub">Il download viene eseguito dal sistema Android, non dalla memoria JavaScript. L’apertura del modello per l’inferenza può comunque richiedere molta RAM. I modelli non sono inclusi nell’APK e saranno cancellati soltanto se elimini i file dell’app o la disinstalli.</p>
+</div>
+<div class="model-picks">
   <div class="model-card">
    <strong>IA 1 · Analisi del suono</strong>
    <label for="ggufAnalyst" class="filelabel">📂 Seleziona GGUF 1 da Download</label>
@@ -100,7 +120,7 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
     Se un GGUF fallisce, continua con filtri conservativi (segnalando che l'IA non ha risposto)
   </label>
   <button id="ggufRun">🧠 Avvia / Riprendi blocchi da 10 s</button>
-  <p class="sub" style="width:100%;margin:1px 0 4px">Il pulsante è sempre disponibile quando non elabora. Seleziona nuovamente il file GGUF da Download dopo ogni reinstallazione: Android non mantiene automaticamente la selezione.</p>
+  <p class="sub" style="width:100%;margin:1px 0 4px">Puoi scegliere i GGUF dalla Libreria IA sopra: i modelli scaricati sono ricordati senza dover ripetere il selettore Download. Il pulsante Avvia mostra un errore esplicito quando manca un modello.</p>
   <button id="ggufPause" class="secondary" disabled>⏸ Pausa dopo questo blocco</button>
   <button id="ggufCleanWav" class="secondary" disabled>⬇ Unisci e salva WAV finale</button>
   <button id="ggufPartsZip" class="secondary" disabled>⬇ Scarica part1, part2… ZIP</button>
