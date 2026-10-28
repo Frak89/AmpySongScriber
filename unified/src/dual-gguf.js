@@ -10,6 +10,7 @@
 import {saveAnalysis} from './qwen-history.js';
 import {createPartBuffer,reopenLastPartBuffer} from './part-buffer.js';
 import {initDebugConsole} from './debug-console.js';
+import {startGGUFWorker} from './gguf-worker-controller.js';
 const $=id=>document.getElementById(id);
 const MAX=1.5*1024*1024*1024;
 export const isGenerativeGGUF=f=>Boolean(f&&/\.gguf$/i.test(f.name)
@@ -92,74 +93,41 @@ export function measureAudio(buf){
   sampledZeroCrossRatio:Number((zc/Math.max(1,count)).toFixed(3))
  };
 }
-// Currently executing GGUF inference. "Stop" is a cooperative AbortSignal;
- // a long running model load may not be interruptible immediately by WebView.
+// One GGUF at a time. A dedicated Worker can be forcibly terminated when
+// llama.cpp hangs during prompt prefill (as measured on Android: 285s no token).
 let activeInferenceController=null;
 async function inference(file,role,system,user,onStatus,diag){
  if(!isGenerativeGGUF(file))throw Error(role+': serve un GGUF generativo valido');
- let llm=null,received='',streamedChunks=0;
- const abort=new AbortController();
- activeInferenceController=abort;
- const start=Date.now();
+ diag.stage(role+' · avvio IA isolata');
+ diag.line('File: '+file.name+' · '+(file.size/1048576).toFixed(0)+' MiB; contesto 768, 1 thread, timeout primo token 50s');
+ let workerTask=null;
+ const started=Date.now();
  try{
-  diag.stage(role+' · inizializzazione');
-  diag.line('File: '+file.name+' · '+(file.size/1048576).toFixed(0)+' MiB; n_ctx=1280, n_batch=64, 1 thread');
-  const {Wllama}=await import('@wllama/wllama/esm/index.js');
-  diag.line('Runtime wllama importato. WASM locale /wllama/wllama.wasm');
-  llm=new Wllama({default:'/wllama/wllama.wasm'},{
-    allowOffline:true,logger:diag.modelLogger
-  });
-  onStatus(role+': caricamento di '+file.name+' dalla cartella Download…');
-  diag.stage(role+' · caricamento GGUF');
-  await llm.loadModel([file],{n_ctx:1280,n_batch:64,n_threads:1,n_gpu_layers:0});
-  if(abort.signal.aborted)throw Error('Interrotto manualmente dopo il caricamento del GGUF');
-  diag.line('Modello caricato in '+((Date.now()-start)/1000).toFixed(1)+' s. Ora preparo il prompt.');
-  const promptLength=system.length+user.length;
-  diag.line('Prompt: '+promptLength+' caratteri (misure numeriche e note, nessun file audio).');
-  diag.stage(role+' · generazione token in streaming');
-  onStatus(role+': generazione parametri, console token attiva…');
-  // wllama supports streaming callbacks and AbortSignal. This avoids waiting
-  // for a monolithic completion and allows the console to expose real progress.
-  await llm.createChatCompletion({
-   messages:[{role:'system',content:system},{role:'user',content:user+' /no_think'}],
-   chat_template_kwargs:{enable_thinking:false},
-   temperature:.12,top_p:.85,max_tokens:200,
-   stream:true,abortSignal:abort.signal,
-   onData:chunk=>{
-    streamedChunks++;
-    const delta=chunk?.choices?.[0]?.delta;
-    const segment=String(delta?.content||delta?.reasoning_content||'');
-    if(segment){received+=segment;diag.token(segment);}
-    if(chunk?.choices?.[0]?.finish_reason)diag.line('GGUF finish_reason='+chunk.choices[0].finish_reason);
+  workerTask=startGGUFWorker({
+   file,role,system,user,
+   onStage:message=>{diag.stage(message);onStatus(message);},
+   onToken:token=>diag.token(token),
+   onLog:entry=>{
+    if(entry.level==='error')diag.error(entry.text);
+    else if(entry.level==='warn')diag.warn(entry.text);
+    else diag.line(entry.text);
    }
   });
+  activeInferenceController=workerTask;
+  const result=await workerTask.promise;
   diag.flushToken();
-  diag.line('Ricevuti '+streamedChunks+' chunk in '+((Date.now()-start)/1000).toFixed(1)+' s.');
-  if(abort.signal.aborted)throw Error('Generazione interrotta manualmente');
-  const answer=received.trim();
-  if(!answer)throw Error(role+': modello terminato senza generare testo; vedi console. '+streamedChunks+' chunk.');
+  const answer=result.answer.trim();
+  if(!answer)throw Error(role+': nessuna risposta generata (Worker terminato).');
   const parsed=extractJSON(answer);
-  diag.line('JSON interpretato correttamente: '+Object.keys(parsed).slice(0,12).join(', '));
-  return {parsed,raw:answer.slice(0,3000),chunks:streamedChunks};
- }catch(e){
+  diag.line(role+': JSON ricevuto e verificato in '+((Date.now()-started)/1000).toFixed(1)+' s. Campi: '+Object.keys(parsed).slice(0,10).join(', '));
+  return {parsed,raw:answer.slice(0,2500),chunks:result.chunks};
+ }catch(error){
   diag.flushToken();
-  const details=String(e?.stack||e?.message||e);
-  diag.error(role+' · '+details);
-  if(abort.signal.aborted){
-   const err=new Error('Generazione GGUF interrotta dall utente.');
-   err.userCancelled=true;
-   throw err;
-  }
-  throw Error(role+' non disponibile: '+String(e?.message||e)+
-   '. Controlla il log: memoria Android, formato GGUF o mancata generazione.');
+  diag.error(role+': '+String(error?.message||error));
+  if(error.ggufTimedOut)diag.warn('TIMEOUT: il Worker è stato fermato; l IA non ha generato parametri. Possibile fallback DSP.');
+  throw error;
  }finally{
-  if(llm){
-   diag.stage(role+' · rilascio memoria');
-   onStatus(role+': libero il GGUF dalla RAM…');
-   try{await llm.exit();diag.line('GGUF rilasciato dopo '+((Date.now()-start)/1000).toFixed(1)+' s.');}
-   catch(e){diag.warn('Rilascio memoria GGUF non riuscito: '+e.message);}
-  }
-  if(activeInferenceController===abort)activeInferenceController=null;
+  if(activeInferenceController===workerTask)activeInferenceController=null;
   await pause();
  }
 }
@@ -202,7 +170,7 @@ function reviseNotes(draft,clean,proposals,stem){
  });
 }
 function isolateDraft(notes){
- return notes.slice(0,24).map((n,i)=>({
+ return notes.slice(0,12).map((n,i)=>({
   index:i,midi:n.pitch,start:Number(n.start.toFixed(3)),duration:Number(n.duration.toFixed(3))
  }));
 }
@@ -213,7 +181,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
   report=$('ggufReport'),progress=$('ggufProgress');
  let busy=false,pauseRequested=false,partBuffer=null,lastReport=null;
  const diag=initDebugConsole(exportFile);
- diag.setStopHandler(()=>{pauseRequested=true;activeInferenceController?.abort();});
+ diag.setStopHandler(()=>{pauseRequested=true;activeInferenceController?.cancel();});
  const say=text=>{status.textContent=text;diag.line(text);};
  const logText=text=>{log.textContent=text;};
  function inspect(){
@@ -294,6 +262,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
   const stem=$('isolateInstrument').value;
   const secondFile=fileB.files?.[0],firstFile=$('ggufReuse').checked?secondFile:fileA.files?.[0];
   const reportChunks=[];
+  const timedOutModels=new Set(); // skip repeatedly stalled GGUFs across subsequent parts
   let processedParts=0;
   try{
    const preflight=inspect();
@@ -352,10 +321,12 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     say(marker+' · GGUF 1 analizza la bozza dello spartito…');
     let analyst;
     try{
+     if(timedOutModels.has(firstFile.name))throw Object.assign(new Error('GGUF già bloccato in un blocco precedente: salto IA1 per non perdere altro tempo.'),{ggufTimedOut:true});
      analyst=await inference(firstFile,marker+' · GGUF 1',
       'Sei revisore 1 di spartiti musicali. Ricevi SOLO misure e note MIDI estratte da Basic Pitch, NON audio. Segnala gli errori probabili senza inventare note. Rispondi SOLO JSON: {"instrument":"guitar","suspectedIssue":"testo","noise":"low|medium|high","suggestion":"breve testo"}.',
       JSON.stringify(data),say,diag);
     }catch(error){
+     if(error?.ggufTimedOut)timedOutModels.add(firstFile.name);
      if(error?.userCancelled||pauseRequested||!$('ggufSafeFallback').checked)throw error;
      analyst={parsed:{instrument:stem,noise:'unknown',suggestion:'Analisi IA1 non riuscita, preservare le note originali'},
       skipped:true,error:String(error.message||error)};
@@ -364,10 +335,12 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     say(marker+' · GGUF 2 rivede la prima IA e i parametri DSP…');
     let reviewer;
     try{
+     if(timedOutModels.has(secondFile.name))throw Object.assign(new Error('GGUF già bloccato: salto IA2 e uso DSP conservativo.'),{ggufTimedOut:true});
      reviewer=await inference(secondFile,marker+' · GGUF 2',
       'Sei revisore 2 di spartiti e parametri DSP. Ricevi note MIDI esistenti e analisi IA1, ma NON ascolti l audio. Non inventare né alterare altezze. Rispondi SOLO JSON: {"strength":0.25,"lowcut":50,"highcut":7000,"suppressUnconfirmed":false,"rejectShorterThan":0.06,"reason":"breve testo"}. Tutti i filtri saranno vincolati a range sicuri.',
       JSON.stringify({...data,analyst:analyst.parsed}),say,diag);
     }catch(error){
+     if(error?.ggufTimedOut)timedOutModels.add(secondFile.name);
      if(error?.userCancelled||pauseRequested||!$('ggufSafeFallback').checked)throw error;
      reviewer={parsed:{strength:.12,lowcut:restrictions(stem).defaultLow,
         highcut:restrictions(stem).defaultHigh,suppressUnconfirmed:false,
