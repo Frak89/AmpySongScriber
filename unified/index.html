@@ -99,14 +99,15 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
     <input id="ggufSafeFallback" type="checkbox" checked style="width:21px;height:21px"/>
     Se un GGUF fallisce, continua con filtri conservativi (segnalando che l'IA non ha risposto)
   </label>
-  <button id="ggufRun" disabled>🧠 Avvia / Riprendi blocchi da 10 s</button>
+  <button id="ggufRun">🧠 Avvia / Riprendi blocchi da 10 s</button>
+  <p class="sub" style="width:100%;margin:1px 0 4px">Il pulsante è sempre disponibile quando non elabora. Seleziona nuovamente il file GGUF da Download dopo ogni reinstallazione: Android non mantiene automaticamente la selezione.</p>
   <button id="ggufPause" class="secondary" disabled>⏸ Pausa dopo questo blocco</button>
   <button id="ggufCleanWav" class="secondary" disabled>⬇ Unisci e salva WAV finale</button>
   <button id="ggufPartsZip" class="secondary" disabled>⬇ Scarica part1, part2… ZIP</button>
   <button id="ggufReport" class="secondary" disabled>⬇ Rapporto IA JSON</button>
  </div>
  <progress id="ggufProgress" value="0" max="100"></progress>
- <p id="ggufStatus" class="notice" role="status">Seleziona entrambi i modelli. Verranno caricati uno dopo l’altro per limitare la RAM.</p>
+ <p id="ggufStatus" class="notice" role="status">Seleziona Qwen3-0.6B-Q4_K_M.gguf come GGUF 2. Se hai attivo il riutilizzo, GGUF 1 non è necessario. Premi Avvia per vedere una diagnosi anche se manca un file.</p>
  <div class="ampy-terminal" role="region" aria-label="Console diagnostica IA">
    <div class="ampy-terminal-bar">
     <strong><span class="terminal-indicator"></span> Console IA · Diagnostica live</strong>
