@@ -100,7 +100,10 @@ jobs:
           ls -lh public/wllama/wllama.wasm
       - name: Build embedded offline HTML/JS app
         working-directory: unified
-        run: npm run build
+        run: |
+          npm run build
+          find dist -iname '*gguf-inference-worker*.js' -print
+          test -n "$(find dist -iname '*gguf-inference-worker*.js' -print -quit)"
       - name: Create Capacitor Android project
         working-directory: unified
         run: |
@@ -120,6 +123,7 @@ jobs:
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'model.json'
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'yamnet/model.json'
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'wllama/wllama.wasm'
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'gguf-inference-worker'
       - name: Upload directly installable APK
         uses: actions/upload-artifact@v4
         with:
