@@ -1,4 +1,5 @@
-import {loadDemucsModel,separateStems,extractStems} from './demucs-loader.js';
+import {STEM_LABELS,STEM_KEYS} from './demucs6-loader.js';
+import {refineInstrumentNotes,noteRange} from './note-cleanup.js';
 import {BasicPitch, outputToNotesPoly, addPitchBendsToNoteEvents, noteFramesToTime} from '@spotify/basic-pitch';
 import {Midi} from '@tonejs/midi';
 import JSZip from 'jszip';
@@ -9,18 +10,21 @@ import {Capacitor} from '@capacitor/core';
 import {encodeWav,validateWav} from './wav.js';
 import {createMusicXML} from './notation.js';
 import {recognizeInstruments} from './instrument-ai.js';
-import {initQwen} from './qwen-local.js';
+// Language GGUF removed from critical path: use trained music models directly.
 
 const $=(id)=>document.getElementById(id);
 const btn=(id,v)=>{$(id).disabled=!v};
 let audioFile=null, audioBuffer=null, context=null, stems={},sourceUrl=null;
-let currentMidi=null, currentNotes=[], selectedStem='', scoreTitle='';
+let currentMidi=null, currentNotes=[], currentMidiStem=null, scoreTitle='';
 let latestInstrumentPredictions=[];
-let qwenAssistant=null;
+let activeStem=null;
+let instrumentLabel='';
+let instrumentPredictions=[];
 let demucsWorker=null, separationStopper=null, separationTimer=null;
 let separationStage='idle', separationProgress=0, separationStart=0;
 const fmtElapsed=(s)=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
-const STEMS=[['vocals','🎙️ Voce'],['drums','🥁 Batteria'],['bass','🎸 Basso'],['other','🎹 Altri strumenti']];
+const STEMS=STEM_KEYS.map(key=>[key,STEM_LABELS[key]]);
+const shownStemName=key=>key==='other'&&instrumentLabel?'🎻 Possibile '+instrumentLabel+' (residuo misto)':STEM_LABELS[key]||key;
 const setStatus=(s)=>{$('status').textContent=s};
 const fmt=(x)=>(x/1048576).toFixed(1)+' MB';
 const slug=(s)=>s.replace(/\.[^.]+$/,'').replace(/[^a-z0-9._-]+/gi,'_').slice(0,85)||'AmpySongScriber';
@@ -63,10 +67,11 @@ async function exportWav(buf,filename){
 }
 async function openFile(file) {
  if(!file)return;
- audioFile=file; stems={};currentMidi=null;currentNotes=[];latestInstrumentPredictions=[];
+ audioFile=file; stems={};currentMidi=null;currentMidiStem=null;currentNotes=[];latestInstrumentPredictions=[];
  btn('separate',true);btn('transcribe',true);btn('zipall',false);btn('detectBpm',true);
  for(const k of ['pdf','xml','midi','preview'])btn(k,false);
- btn('identify',false);$('instrumentResults').textContent='';
+ btn('wavSelected',false);
+ btn('identify',false);$('instrumentResults').textContent='';instrumentLabel='';activeStem=null;
  $('score').style.display='none';$('tracks').replaceChildren();
  $('trackselect').innerHTML='<option value="original">Brano originale</option>';
  $('filename').textContent=file.name+' · '+fmt(file.size);
@@ -105,7 +110,7 @@ function cancelSeparation(){
 }
 $('cancel').addEventListener('click',cancelSeparation);
 
-async function runDemucsInWorker(buf){
+async function runDemucsInWorker(buf,stem){
  // Transfer copies: WebAudio owns its data; detaching those buffers would break playback.
  const channels=[buf.getChannelData(0).slice(),buf.getChannelData(1).slice()];
  terminateDemucsWorker();
@@ -119,7 +124,7 @@ async function runDemucsInWorker(buf){
  separationTimer=setInterval(()=>{
   const elapsed=Math.round((Date.now()-separationStart)/1000);
   if(separationStage==='model'){
-    setStatus('Inizializzazione HTDemucs offline (181 MB) · '+fmtElapsed(elapsed)+'\nIl primo caricamento può essere molto lento sul Pixel 7 Pro. Questa fase non fornisce una percentuale reale.\nPuoi toccare Annulla per interrompere.');
+    setStatus('Inizializzazione HTDemucs 6 strumenti offline (~136 MB) · '+fmtElapsed(elapsed)+'\nIl primo caricamento può essere molto lento sul Pixel 7 Pro. Questa fase non fornisce una percentuale reale.\nPuoi toccare Annulla per interrompere.');
   }else if(separationStage==='separating'){
     setStatus('Separazione audio in corso · '+separationProgress+'% · tempo trascorso '+fmtElapsed(elapsed));
   }
@@ -156,57 +161,91 @@ async function runDemucsInWorker(buf){
      terminateDemucsWorker();finish(null,d.result);
    }
   };
-  demucsWorker.postMessage({type:'separate',sampleRate:44100,channels},channels.map(c=>c.buffer));
+  demucsWorker.postMessage({type:'separate',sampleRate:44100,stem,channels},channels.map(c=>c.buffer));
  });
 }
 
+function makeStemBuffer(result){
+ const b=context.createBuffer(2,result.length,44100);
+ for(let c=0;c<2;c++)b.getChannelData(c).set(result.channels[c]);
+ return b;
+}
+function renderStem(){
+ $('tracks').replaceChildren();
+ $('trackselect').innerHTML='<option value="original">Brano originale (non separato)</option>';
+ for(const [key,name] of STEMS){
+  const buff=stems[key];if(!buff)continue;
+  const div=document.createElement('div');div.className='track';
+  const title=document.createElement('strong');title.dataset.stemName=key;
+  title.textContent=shownStemName(key);
+  const audio=document.createElement('audio');audio.controls=true;audio.preload='none';
+  const controls=document.createElement('div');controls.className='actions';
+  const listen=document.createElement('button');listen.className='secondary';listen.textContent='▶ Ascolta';
+  listen.onclick=async()=>{
+   if(!audio.src){
+    listen.disabled=true;listen.textContent='WAV in preparazione…';
+    try{const encoded=encodeWav(buff);await validateWav(encoded);audio.src=URL.createObjectURL(encoded);}
+    catch(e){setStatus('Errore ascolto: '+e.message);}
+    finally{listen.disabled=false;listen.textContent='▶ Ascolta';}
+   }
+   if(audio.src)await audio.play().catch(e=>setStatus('Riproduzione non disponibile: '+e.message));
+  };
+  const download=document.createElement('button');download.textContent='⬇ WAV';download.className='secondary';
+  download.onclick=()=>exportWav(buff,slug(audioFile.name)+'_'+key+'.wav');
+  const score=document.createElement('button');score.textContent='🎼 Spartito '+(key==='other'?'(stimato)':'singolo');
+  score.onclick=async()=>{$('trackselect').value=key;await transcribe();};
+  const midi=document.createElement('button');midi.textContent='⬇ MIDI';midi.className='secondary';
+  midi.onclick=()=>downloadForStem(key,'midi');
+  const xml=document.createElement('button');xml.textContent='⬇ MusicXML';xml.className='secondary';
+  xml.onclick=()=>downloadForStem(key,'xml');
+  const pdf=document.createElement('button');pdf.textContent='⬇ PDF';pdf.className='secondary';
+  pdf.onclick=()=>downloadForStem(key,'pdf');
+  controls.append(listen,download,score,midi,xml,pdf);
+  div.append(title,audio,controls);$('tracks').append(div);
+  const opt=document.createElement('option');opt.value=key;opt.textContent=shownStemName(key);
+  $('trackselect').append(opt);
+ }
+ if(activeStem && stems[activeStem])$('trackselect').value=activeStem;
+ btn('wavSelected',Boolean(stems[activeStem]));
+}
+async function downloadForStem(key,format){
+ const btnId=format==='xml'?'xml':format;
+ if(!stems[key])return;
+ if(!currentMidi||currentMidiStem!==key){
+  $('trackselect').value=key;
+  await transcribe();
+ }
+ if(!currentMidi||currentMidiStem!==key){
+  setStatus('Impossibile esportare: trascrizione dello strumento non disponibile.');
+  return;
+ }
+ if(!$(btnId).disabled)$(btnId).click();
+}
 async function separate(){
  if(busy)return;busy=true;btn('separate',false);
- try {
-  if(qwenAssistant?.isLoaded())await qwenAssistant.unload();
+ try{
+  const stem=$('isolateInstrument').value;
+  if(!STEM_KEYS.includes(stem))throw Error('Seleziona uno strumento valido');
   setStatus('Decodifica audio in corso…');progress('progress',2);
   const buf=await decodeAudio();
   if(buf.sampleRate!==44100||buf.numberOfChannels!==2)
-    throw new Error('Conversione a 44.100 Hz stereo non riuscita');
-  const result=await runDemucsInWorker(buf);
-  stems=extractStems(result,44100,context);
-  $('tracks').replaceChildren();
-  $('trackselect').innerHTML='<option value="original">Brano originale</option>';
-  for(const [key,name] of STEMS){
-    const buff=stems[key];if(!buff)continue;
-    const div=document.createElement('div');div.className='track';
-    const title=document.createElement('strong');title.textContent=name;
-    const audio=document.createElement('audio');audio.controls=true;audio.preload='none';
-    const listen=document.createElement('button');listen.className='secondary';listen.textContent='▶ Ascolta';
-    listen.onclick=async()=>{
-      if(!audio.src){
-        listen.disabled=true;listen.textContent='Preparazione WAV…';
-        try{
-          const encoded=encodeWav(buff);await validateWav(encoded);
-          audio.src=URL.createObjectURL(encoded);
-          listen.textContent='▶ Ascolta';
-        }catch(e){setStatus('Errore audio: '+String(e?.message||e));}
-        finally{listen.disabled=false;}
-      }
-      if(audio.src)await audio.play().catch(e=>setStatus('Riproduzione audio non riuscita: '+e.message));
-    };
-    const controls=document.createElement('div');controls.className='actions';
-    const dl=document.createElement('button');dl.className='secondary';dl.textContent='⬇ WAV';
-    dl.onclick=()=>exportWav(buff,slug(audioFile.name)+'_'+key+'.wav');
-    const score=document.createElement('button');score.textContent='🎼 Spartito';score.className='secondary';
-    score.onclick=()=>{$('trackselect').value=key;transcribe()};
-    controls.append(listen,dl,score);div.append(title,audio,controls);$('tracks').append(div);
-    const opt=document.createElement('option');opt.value=key;opt.textContent=name;
-    $('trackselect').append(opt);
-  }
-  btn('zipall',true);btn('identify',Boolean(stems.other));
-  setStatus('Tracce estratte: voce, batteria, basso e altri strumenti. Elaborazione locale completata.');
+   throw Error('Conversione 44.100 Hz stereo non riuscita');
+  const result=await runDemucsInWorker(buf,stem);
+  // Keep only one isolated instrument at a time to avoid out-of-memory on mobile.
+  stems={[stem]:makeStemBuffer(result)};
+  activeStem=stem;currentMidi=null;currentNotes=[];currentMidiStem=null;
+  instrumentLabel='';instrumentPredictions=[];latestInstrumentPredictions=[];
+  for(const k of ['pdf','xml','midi','preview'])btn(k,false);
+  renderStem();
+  btn('zipall',true);
+  btn('identify',stem==='other');
+  setStatus(shownStemName(stem)+' isolato offline. Puoi ascoltarlo o scaricare il WAV, oppure generare MIDI/MusicXML/PDF.');
+  if(stem==='other')await identifyResidual();
  }catch(e){
-  setStatus('Separazione interrotta: '+(e?.message||e)+'. Se fallisce ancora durante il caricamento, il modello HTDemucs potrebbe esaurire la memoria del WebView.');console.error(e);
+  setStatus('Separazione interrotta: '+String(e?.message||e)+'. Prova un estratto breve o libera memoria: il modello 6s richiede molta RAM.');console.error(e);
  }finally{
   if(separationTimer){clearInterval(separationTimer);separationTimer=null;}
-  $('cancel').hidden=true;
-  $('progress').style.display='none';
+  $('cancel').hidden=true;$('progress').style.display='none';
   busy=false;btn('separate',true);
  }
 }
@@ -231,12 +270,11 @@ $('zipall').onclick=async()=>{
 async function transcribe(){
  if(busy)return;busy=true;btn('transcribe',false);
  try{
-  if(qwenAssistant?.isLoaded())await qwenAssistant.unload();
   const which=$('trackselect').value;
   if(which==='drums')setStatus('La trascrizione della batteria con Basic Pitch è indicativa, non una notazione ritmica dedicata.');
   const buf=which==='original'?await decodeAudio():stems[which];
   if(!buf)throw new Error('Traccia non ancora disponibile. Separa prima l’audio.');
-  currentNotes=[];currentMidi=null;scoreTitle=slug(audioFile.name)+' · '+(STEMS.find(x=>x[0]===which)?.[1]||'Brano');
+  currentNotes=[];currentMidi=null;currentMidiStem=null;scoreTitle=slug(audioFile.name)+' · '+shownStemName(which);
   setStatus('Carico Basic Pitch, IA locale per riconoscere le note...');progress('midiProgress',5);
   const pitch=new BasicPitch('/basic-pitch/model.json');
   const frames=[],onsets=[],contours=[];
@@ -251,12 +289,14 @@ async function transcribe(){
   await pitch.evaluateModel(pitchBuffer,(f,o,c)=>{frames.push(...f);onsets.push(...o);contours.push(...c)},p=>{progress('midiProgress',Math.round(p*100));setStatus('Trascrizione note · '+Math.round(p*100)+'%')});
   const threshold=Math.max(.1,Math.min(.8,Number($('noteThreshold').value)||.32));
   const raw=noteFramesToTime(addPitchBendsToNoteEvents(contours,outputToNotesPoly(frames,onsets,threshold,threshold,Number($('minimumNote').value)||7)));
-  currentNotes=raw.filter(x=>x.pitchMidi>=21&&x.pitchMidi<=108&&x.durationSeconds>.045).map(n=>({pitch:n.pitchMidi,start:Math.max(0,n.startTimeSeconds),duration:n.durationSeconds,velocity:Math.min(1,Math.max(.1,n.amplitude||.7))})).sort((a,b)=>a.start-b.start);
+  currentNotes=refineInstrumentNotes(raw,which);
+  if(!currentNotes.length)throw Error('Nessuna nota affidabile trovata per '+shownStemName(which)+'. Cambia sensibilità e riprova.');
+  setStatus('Note verificate per '+shownStemName(which)+': '+currentNotes.length+'. Gamma musicale '+noteRange(which)+'.');
   const bpm=Math.max(40,Math.min(240,Number($('tempo').value)||120));
   const midi=new Midi();midi.header.name=scoreTitle;midi.header.setTempo(bpm);
   const t=midi.addTrack();t.name=which;t.instrument.number=which==='bass'?33:which==='vocals'?53:0;
   for(const n of currentNotes)t.addNote({midi:n.pitch,time:n.start,duration:n.duration,velocity:n.velocity});
-  currentMidi=midi;
+  currentMidi=midi;currentMidiStem=which;
   await showAccurateScore();for(const k of ['pdf','xml','midi','preview'])btn(k,true);
   setStatus('Spartito MusicXML generato: '+currentNotes.length+' note · '+bpm+' BPM. Esporta PDF e MusicXML oppure modifica tempo/soglia per migliorare il risultato.');
  }catch(e){setStatus('Trascrizione non riuscita: '+(e?.message||e));console.error(e)}
@@ -422,16 +462,3 @@ $('identify').onclick=async()=>{
 };
 
 
-// The GGUF is intentionally not bundled into the APK. Android's file chooser
-// grants access to a user-selected local .gguf from Downloads. This AI interprets
-// annotations and never replaces the actual audio DSP/transcription engines.
-qwenAssistant=initQwen(()=>({
- song:audioFile?.name||'',
- durationSec:audioBuffer?.duration||0,
- tempo:Number($('tempo').value)||120,
- track:$('trackselect').selectedOptions[0]?.textContent||'',
- hasStems:Object.keys(stems).length>0,
- noteCount:currentNotes.length,
- notes:currentNotes,
- instrumentPredictions:latestInstrumentPredictions
-}),exportFile);
