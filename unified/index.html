@@ -107,6 +107,7 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
   <button id="ggufReport" class="secondary" disabled>⬇ Rapporto IA JSON</button>
  </div>
  <progress id="ggufProgress" value="0" max="100"></progress>
+ <p class="sub" style="margin-top:7px">Rev12: se Qwen non produce il primo token entro 50 secondi, il suo processo IA viene terminato. Con il fallback DSP attivo, la pulizia audio prosegue e salva <code>part001.wav</code> senza attendere altri minuti. I GGUF che si bloccano vengono saltati nei blocchi successivi e il log ne riporta il motivo.</p>
  <p id="ggufStatus" class="notice" role="status">Seleziona Qwen3-0.6B-Q4_K_M.gguf come GGUF 2. Se hai attivo il riutilizzo, GGUF 1 non è necessario. Premi Avvia per vedere una diagnosi anche se manca un file.</p>
  <div class="ampy-terminal" role="region" aria-label="Console diagnostica IA">
    <div class="ampy-terminal-bar">
