@@ -10,6 +10,7 @@ import {Share} from '@capacitor/share';
 import {Capacitor} from '@capacitor/core';
 import JSZip from 'jszip';
 import {encodeWav,validateWav} from './wav.js';
+import {createMusicXML} from './notation.js';
 
 const ROOT='AmpySongScriber/parts',LAST=ROOT+'/last-session.json';
 const native=()=>Capacitor.isNativePlatform();
@@ -80,7 +81,10 @@ export async function createPartBuffer(song,stem,restored=null){
   const bytes=new Uint8Array(await wave.arrayBuffer());
   const data={name:partName,frames:buf.length,bytes:bytes.length,startSample:session.totalSamples,
    draftNoteCount:Number(metadata.draftNoteCount)||0,finalNoteCount:Number(metadata.finalNoteCount)||0,
+   draftNotes:Array.isArray(metadata.draftNotes)?metadata.draftNotes.slice(0,500):[],
    finalNotes:Array.isArray(metadata.finalNotes)?metadata.finalNotes.slice(0,500):[],
+   analysis:metadata.analysis||{},review:metadata.review||{},
+   firstModel:String(metadata.firstModel||'').slice(0,100),secondModel:String(metadata.secondModel||'').slice(0,100),
    params:metadata.params||{}};
   if(native()){
    const path=ROOT+'/'+session.id+'/'+partName;
@@ -133,7 +137,26 @@ export async function createPartBuffer(song,stem,restored=null){
  async function zipParts(){
   const z=new JSZip();
   for(let i=0;i<session.parts.length;i++){
-   z.file(session.parts[i].name,await getPartBytes(i));
+   const p=session.parts[i];
+   z.file(p.name,await getPartBytes(i));
+   const partId=p.name.replace(/\.wav$/i,'');
+   z.file(partId+'_analysis.json',JSON.stringify({
+    firstModel:p.firstModel,secondModel:p.secondModel,
+    draftNoteCount:p.draftNoteCount,finalNoteCount:p.finalNoteCount,
+    analysis:p.analysis,review:p.review,appliedDSP:p.params
+   },null,2));
+   const opts={title:session.song+' · '+session.stem+' · '+partId,
+    instrument:session.stem,bpm:120,bass:session.stem==='bass'};
+   if(p.draftNotes?.length){
+    try{z.file(partId+'_draft.musicxml',createMusicXML(p.draftNotes,opts));}catch(e){}
+   }
+   if(p.finalNotes?.length){
+    try{
+     const offset=p.startSample/session.sampleRate;
+     const relative=p.finalNotes.map(n=>({...n,start:Math.max(0,n.start-offset)}));
+     z.file(partId+'_revised.musicxml',createMusicXML(relative,opts));
+    }catch(e){}
+   }
   }
   z.file('manifest.json',JSON.stringify(sessionSummary(),null,2));
   return z.generateAsync({type:'blob',compression:'STORE'});
