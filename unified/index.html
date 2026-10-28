@@ -15,7 +15,7 @@ progress{width:100%;height:16px;accent-color:var(--gold);margin:10px 0} [hidden]
 .settings{display:flex;flex-wrap:wrap;gap:12px;margin:18px 0}.settings label{display:grid;gap:7px;font-size:12px;color:#cbd5e1}
 .settings input,.settings select{background:#222d46;border:1px solid #51607e;border-radius:8px;color:#fff;padding:10px;min-height:43px;width:130px}
 #instrumentResults ol{margin-top:12px;padding-left:24px;line-height:1.9}.track strong{font-size:16px}.track audio{width:100%;height:42px}.track .line button{font-size:12px;padding:9px}
-#score{max-width:100%;overflow-x:auto;border-radius:12px;background:#fff;padding:8px;display:none}#score canvas{max-width:100%;height:auto}
+.model-picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:16px}.model-card{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid #425475;border-radius:14px;background:#1d2841}.model-card .filelabel{font-size:12px}#score{max-width:100%;overflow-x:auto;border-radius:12px;background:#fff;padding:8px;display:none}#score canvas{max-width:100%;height:auto}
 #status{white-space:pre-wrap;line-height:1.45;font-size:13px;color:#f1d7a6}
 footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 @media(min-width:700px){main{padding:28px}.track{grid-template-columns:140px 1fr 1fr;align-items:center}.track audio{min-width:180px}}
@@ -58,6 +58,32 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <progress id="midiProgress" max="100" value="0" style="display:none"></progress><div id="score"></div>
 <div class="actions" style="margin-top:14px"><button class="secondary" id="preview" disabled>🎼 Anteprima MusicXML</button><button class="secondary" id="pdf" disabled>⬇ PDF spartito</button><button class="secondary" id="xml" disabled>⬇ MusicXML · MuseScore</button><button class="secondary" id="midi" disabled>⬇ MIDI</button></div>
 <p class="notice">MusicXML è apribile e modificabile in MuseScore Studio. Il motore desktop GPL di MuseScore non è copiato nell'APK.</p></section>
+<section class="card" id="dualPanel">
+ <h2>4. Due GGUF offline in sequenza</h2>
+ <p class="sub">Seleziona due file .gguf dal telefono: l’IA 1 interpreta le misure della traccia isolata, l’IA 2 rivede l’analisi e indica filtri conservativi. Poi il motore FFT ripulisce i campioni reali e Basic Pitch genera lo spartito dello strumento scelto. Nessun modello linguistico può ascoltare direttamente il WAV.</p>
+ <div class="model-picks">
+  <div class="model-card">
+   <strong>IA 1 · Analisi del suono</strong>
+   <label for="ggufAnalyst" class="filelabel">📂 Seleziona GGUF 1 da Download</label>
+   <input id="ggufAnalyst" type="file" accept=".gguf,application/octet-stream"/>
+   <span class="sub" id="ggufAnalystLabel">Nessun modello selezionato</span>
+  </div>
+  <div class="model-card">
+   <strong>IA 2 · Revisione e parametri di pulizia</strong>
+   <label for="ggufReviewer" class="filelabel">📂 Seleziona GGUF 2 da Download</label>
+   <input id="ggufReviewer" type="file" accept=".gguf,application/octet-stream"/>
+   <span class="sub" id="ggufReviewerLabel">Nessun modello selezionato</span>
+  </div>
+ </div>
+ <div class="actions" style="margin-top:16px">
+  <button id="ggufRun" disabled>🧠 Avvia 2 IA → Pulisci → Spartito</button>
+  <button id="ggufCleanWav" class="secondary" disabled>⬇ WAV ripulito</button>
+  <button id="ggufReport" class="secondary" disabled>⬇ Rapporto IA JSON</button>
+ </div>
+ <p id="ggufStatus" class="notice" role="status">Seleziona entrambi i modelli. Verranno caricati uno dopo l’altro per limitare la RAM.</p>
+ <pre id="ggufLog" style="font-family:monospace;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:330px;overflow-y:auto"></pre>
+ <p class="sub">Dopo l’elaborazione usa i pulsanti di sezione 3 per salvare MIDI, MusicXML e PDF dello strumento. L’IA GGUF suggerisce filtri; la pulizia audio effettiva è eseguita localmente dal motore DSP. Nessun invio online.</p>
+</section>
 <section class="card"><h2>Informazioni</h2><p class="sub">Tutto offline, senza account o limiti software di utilizzo. Le tracce WAV sono audio realmente separato. Il modello 6s occupa circa 136 MB su disco, ma può richiedere oltre 1 GB di RAM durante l’inferenza. Evita brani lunghi sul primo test.</p></section>
 <footer>Songscribe (Gabriel Serna, MIT) · Spleeter (Deezer, MIT, riferimento concettuale) · HTDemucs (Meta, MIT) · Basic Pitch (Spotify, Apache 2.0) · MuseScore Studio (GPLv3, interoperabilità MusicXML) · HTDemucs-6s ONNX (StemSplitio, MIT) · YAMNet (Google, Apache 2.0)</footer>
 </main><script type="module" src="/src/main.js"></script></body></html>
