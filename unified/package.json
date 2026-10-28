@@ -1,6 +1,6 @@
 {
   "name": "ampysongscriber-unified",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,7 +20,8 @@
     "web-audio-beat-detector": "^8.2.16",
     "svg2pdf.js": "2.8.1",
     "@wllama/wllama": "3.8.1",
-    "fft.js": "4.0.4"
+    "fft.js": "4.0.4",
+    "@capacitor/file-transfer": "1.0.7"
   },
   "devDependencies": {
     "vite": "^5.4.20",
