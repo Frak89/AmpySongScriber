@@ -15,7 +15,14 @@ progress{width:100%;height:16px;accent-color:var(--gold);margin:10px 0} [hidden]
 .settings{display:flex;flex-wrap:wrap;gap:12px;margin:18px 0}.settings label{display:grid;gap:7px;font-size:12px;color:#cbd5e1}
 .settings input,.settings select{background:#222d46;border:1px solid #51607e;border-radius:8px;color:#fff;padding:10px;min-height:43px;width:130px}
 #instrumentResults ol{margin-top:12px;padding-left:24px;line-height:1.9}.track strong{font-size:16px}.track audio{width:100%;height:42px}.track .line button{font-size:12px;padding:9px}
-.model-picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:16px}.model-card{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid #425475;border-radius:14px;background:#1d2841}.model-card .filelabel{font-size:12px}#score{max-width:100%;overflow-x:auto;border-radius:12px;background:#fff;padding:8px;display:none}#score canvas{max-width:100%;height:auto}
+.model-picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:16px}.model-card{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid #425475;border-radius:14px;background:#1d2841}.model-card .filelabel{font-size:12px}.ampy-terminal{margin-top:18px;background:#080e18;border:1px solid #425774;border-radius:14px;overflow:hidden}
+.ampy-terminal-bar{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:11px 13px;background:#111c2e;font-size:12px;color:#e5eefb}
+.ampy-terminal-bar #ggufConsoleState{font-size:11px;color:#f4c778}
+.terminal-indicator{display:inline-block;width:9px;height:9px;border-radius:50%;background:#6abf86;margin-right:7px}
+.ampy-terminal-stats{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 13px;color:#a8bfd5;font:11px ui-monospace,SFMono-Regular,monospace;border-bottom:1px solid #26374d}
+#ggufConsole{min-height:150px;max-height:340px;overflow:auto;margin:0;padding:12px;color:#baf7c5;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.ampy-terminal .actions button{font-size:12px;padding:9px 12px}
+#score{max-width:100%;overflow-x:auto;border-radius:12px;background:#fff;padding:8px;display:none}#score canvas{max-width:100%;height:auto}
 #status{white-space:pre-wrap;line-height:1.45;font-size:13px;color:#f1d7a6}
 footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 @media(min-width:700px){main{padding:28px}.track{grid-template-columns:140px 1fr 1fr;align-items:center}.track audio{min-width:180px}}
@@ -100,7 +107,31 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
  </div>
  <progress id="ggufProgress" value="0" max="100"></progress>
  <p id="ggufStatus" class="notice" role="status">Seleziona entrambi i modelli. Verranno caricati uno dopo l’altro per limitare la RAM.</p>
- <pre id="ggufLog" style="font-family:monospace;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:330px;overflow-y:auto"></pre>
+ <div class="ampy-terminal" role="region" aria-label="Console diagnostica IA">
+   <div class="ampy-terminal-bar">
+    <strong><span class="terminal-indicator"></span> Console IA · Diagnostica live</strong>
+    <span id="ggufConsoleState">IN ATTESA</span>
+   </div>
+   <div class="ampy-terminal-stats">
+    <span id="ggufConsoleStage">Fase: inattiva</span>
+    <span id="ggufConsoleTime">Tempo: 0:00</span>
+    <span id="ggufConsoleTokens">Token: 0</span>
+    <span id="ggufConsoleMemory">RAM JS: n/d</span>
+   </div>
+   <pre id="ggufConsole" aria-live="off" tabindex="0">[console] In attesa di un task.
+[console] I token del modello appariranno qui mentre vengono generati.</pre>
+   <div class="actions" style="padding:8px 12px 12px">
+    <button class="secondary" id="ggufStop" disabled>■ Interrompi generazione</button>
+    <button class="secondary" id="ggufExportConsole">⬇ Esporta log TXT</button>
+    <button class="secondary" id="ggufClearConsole">Pulisci vista</button>
+    <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+      <input type="checkbox" id="ggufConsoleAutoscroll" checked/> Autoscroll
+    </label>
+   </div>
+  </div>
+  <details style="margin-top:10px"><summary style="cursor:pointer">Dati del blocco / rapporto tecnico</summary>
+  <pre id="ggufLog" style="font-family:monospace;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:330px;overflow-y:auto"></pre>
+  </details>
  <p class="sub">Puoi mettere in pausa dopo il blocco corrente, scaricare lo ZIP delle parti o unire quelle già salvate. Le bozze MusicXML/MIDI vengono aggregate in un unico spartito alla fine. I due GGUF sono caricati uno alla volta e poi liberati dalla RAM: il processo può essere molto lento sul telefono.</p>
 </section>
 <section class="card"><h2>Informazioni</h2><p class="sub">Tutto offline, senza account o limiti software di utilizzo. Le tracce WAV sono audio realmente separato. Il modello 6s occupa circa 136 MB su disco, ma può richiedere oltre 1 GB di RAM durante l’inferenza. Evita brani lunghi sul primo test.</p></section>
