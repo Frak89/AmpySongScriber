@@ -8,6 +8,7 @@
  * produced by actual DSP. No cloud access. No silent fallback if GGUF fails.
  */
 import {saveAnalysis} from './qwen-history.js';
+import {createPartBuffer,reopenLastPartBuffer} from './part-buffer.js';
 const $=id=>document.getElementById(id);
 const MAX=1.5*1024*1024*1024;
 const fileValid=f=>f&&/\.gguf$/i.test(f.name)&&f.size>=80*1024*1024&&f.size<=MAX;
@@ -121,95 +122,223 @@ function cleaningWorker(input,params,onProgress){
   worker.postMessage({type:'clean',samples:input,params},[input.buffer]);
  });
 }
-export function initDualGGUF({getSource,ensureSource,transcribe,exportFile,getSong,onResult}){
+const SEGMENT_SEC=10;
+const FRAME_RATE=22050;
+function sliceMono(source,startFrame,count){
+ const b=new AudioBuffer({numberOfChannels:1,length:count,sampleRate:FRAME_RATE});
+ b.copyToChannel(source.getChannelData(0).subarray(startFrame,startFrame+count),0);
+ return b;
+}
+function reviseNotes(draft,clean,proposals,stem){
+ // Two GGUFs can ask for conservative rejection of artifacts, never invent notes.
+ // A cleaned note must be supported acoustically by Basic Pitch itself.
+ const raw=(clean||[]).filter(n=>Number.isFinite(n.pitch)&&Number.isFinite(n.start)&&n.duration>0);
+ const maxReject=Math.min(.18,Math.max(.05,Number(proposals?.rejectShorterThan)||.055));
+ const requireConfirmation=proposals?.suppressUnconfirmed===true;
+ return raw.filter(n=>{
+  if(n.duration<maxReject)return false;
+  if(!requireConfirmation||n.duration>.20)return true;
+  return draft.some(d=>d.pitch===n.pitch&&Math.abs(d.start-n.start)<.16);
+ });
+}
+function isolateDraft(notes){
+ return notes.slice(0,70).map((n,i)=>({
+  index:i,midi:n.pitch,start:Number(n.start.toFixed(3)),duration:Number(n.duration.toFixed(3))
+ }));
+}
+export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,exportFile,getSong,onResult}){
  const fileA=$('ggufAnalyst'),fileB=$('ggufReviewer'),button=$('ggufRun');
- const status=$('ggufStatus'),log=$('ggufLog'),download=$('ggufCleanWav'),report=$('ggufReport');
- let busy=false,cleanedBuffer=null,lastReport=null;
+ const pause=$('ggufPause'),status=$('ggufStatus'),log=$('ggufLog'),
+  download=$('ggufCleanWav'),partsDownload=$('ggufPartsZip'),
+  report=$('ggufReport'),progress=$('ggufProgress');
+ let busy=false,pauseRequested=false,partBuffer=null,lastReport=null;
  const say=text=>{status.textContent=text;};
  const logText=text=>{log.textContent=text;};
  function update(){
   button.disabled=busy||!fileValid(fileA.files?.[0])||!fileValid(fileB.files?.[0]);
+  pause.disabled=!busy;
   if(!busy&&fileValid(fileA.files?.[0])&&fileValid(fileB.files?.[0])){
-   say('Entrambi i GGUF selezionati. Primo modello → secondo modello → FFT → spartito.');
+   say('GGUF 1 e GGUF 2 pronti. Verranno caricati uno alla volta per ogni blocco.');
   }
  }
  for(const f of [fileA,fileB])f.addEventListener('change',update);
- button.onclick=async()=>{
-  if(busy)return;
-  busy=true;update();download.disabled=true;report.disabled=true;
-  cleanedBuffer=null;lastReport=null;
-  const stem=$('isolateInstrument').value;
-  const firstFile=fileA.files?.[0],secondFile=fileB.files?.[0];
-  try{
-   if(!fileValid(firstFile)||!fileValid(secondFile))throw Error('Seleziona due file GGUF dalla cartella Download.');
-   if(firstFile===secondFile)throw Error('Seleziona due file GGUF separati.');
-   say('Fase 0/4: isolo la sorgente strumentale…');
-   await ensureSource(stem);
-   const source=getSource(stem);
-   if(!source)throw Error('La separazione non è riuscita: nessun WAV isolato.');
-   const off=new OfflineAudioContext(1,Math.ceil(source.duration*22050),22050);
-   const node=off.createBufferSource();node.buffer=source;node.connect(off.destination);node.start();
-   const mono=await off.startRendering();
-   const features=measureAudio(mono);
-   const r=restrictions(stem);
-   const data={stem,features,source:getSong(),limits:r};
-   const analyst=await inference(firstFile,'GGUF 1 - Analisi',
-    'Sei una IA per l analisi musicale. Non puoi ascoltare il WAV: puoi usare solo le MISURE NUMERICHE fornite. Rispondi SOLO con un oggetto JSON: {"instrument":"bass","noise":"low/medium/high","suggestion":"breve ragione"} senza markdown. Non inventare note.',
-    JSON.stringify(data),say);
-   say('Fase 2/4: carico GGUF 2 per revisione e pulizia…');
-   const reviewer=await inference(secondFile,'GGUF 2 - Revisione',
-    'Sei un revisore tecnico DSP musicale. Hai misure numeriche e analisi di un altro LLM, ma NON ascolti WAV. Rispondi SOLO con JSON {"strength":0.25,"lowcut":40,"highcut":6000,"reason":"testo breve"}. strength da 0 a 0.7. Mantieni armoniche musicali, rimuovi solo rumore debole; non inventare note.',
-    JSON.stringify({...data,firstAnalysis:analyst.parsed}),say);
-   const params=bounds(reviewer.parsed,stem);
-   say('Fase 3/4: il motore DSP pulisce realmente il suono residuo…');
-   const cleaned=await cleaningWorker(mono.getChannelData(0).slice(),params,p=>
-    say('Pulizia FFT del WAV: '+p+'%'));
-   const buf=new AudioBuffer({length:cleaned.length,sampleRate:22050,numberOfChannels:1});
-   buf.copyToChannel(cleaned,0);
-   cleanedBuffer=buf;
-   say('Fase 4/4: Basic Pitch trascrive la traccia pulita e genera il solo spartito scelto…');
-   const transcribed=await transcribe(buf,stem);
-   if(transcribed===false)throw Error('La trascrizione non è riuscita: controlla le note prima di esportare.');
-   const record={
-    when:new Date().toISOString(),instrument:stem,source:getSong(),
-    firstModel:firstFile.name,secondModel:secondFile.name,
-    measurements:features,analysis:analyst.parsed,review:reviewer.parsed,
-    appliedDSP:params,notesEstimated:transcribed?.noteCount||null,
-    explanation:'GGUF1 e GGUF2 hanno analizzato dati numerici; il filtro FFT ha elaborato l audio; Basic Pitch ha estratto le note.'
-   };
-   lastReport=record;
-   download.disabled=false;report.disabled=false;
-   logText(JSON.stringify(record,null,2));
-   say('✓ Catena completata: GGUF1 → GGUF2 → pulizia WAV → Basic Pitch → MusicXML/PDF. Usa i pulsanti di download.');
-   onResult?.(record);
-   try{
-    const result=await saveAnalysis({
-     question:'Doppia IA su '+stem,
-     answer:JSON.stringify(record),song:getSong(),track:stem,
-     model:firstFile.name+' + '+secondFile.name,status:'complete'
-    });
-    say('✓ Risultato registrato localmente (id '+result.id+'). Puoi anche esportare il rapporto JSON.');
-   }catch(e){say('Elaborazione completata, ma archivio locale non disponibile: '+e.message+'. Esporta il rapporto JSON.');}
-  }catch(e){
-   const msg=String(e?.message||e);
-   say('ERRORE: '+msg);
-   logText('Fase non completata: '+msg);
-  }finally{busy=false;update();}
+ pause.onclick=()=>{
+  if(!busy)return;
+  pauseRequested=true;
+  pause.disabled=true;
+  say('⏸ Pausa richiesta: concludo il blocco corrente e salvo partN.wav prima di fermarmi.');
  };
- download.onclick=async()=>{
-  if(!cleanedBuffer)return;
+ async function exportFinal(){
+  if(!partBuffer)return;
   try{
-   const {encodeWav,validateWav}=await import('./wav.js');
-   const blob=encodeWav(cleanedBuffer);await validateWav(blob);
-   await exportFile(blob,'AmpySongScriber_'+$('isolateInstrument').value+'_cleaned.wav');
-  }catch(e){say('Errore download WAV pulito: '+e.message);}
+   say('Unione progressiva dei partN.wav in un unico WAV PCM16…');
+   const final=await partBuffer.shareFinal();
+   if(final.blob)await exportFile(final.blob,final.filename);
+   say('WAV finale unito: '+partBuffer.sessionSummary().parts.length+' blocchi, '+(partBuffer.sessionSummary().totalSamples/FRAME_RATE).toFixed(1)+' secondi.');
+  }catch(e){say('Unione WAV fallita: '+e.message);}
+ }
+ download.onclick=exportFinal;
+ partsDownload.onclick=async()=>{
+  if(!partBuffer)return;
+  partsDownload.disabled=true;
+  try{
+   say('Creo ZIP di part1.wav, part2.wav… con manifest.json…');
+   const zip=await partBuffer.zipParts();
+   await exportFile(zip,'AmpySongScriber_'+partBuffer.sessionSummary().stem+'_parts.zip');
+   say('ZIP delle parti esportato.');
+  }catch(e){say('ZIP delle parti non riuscito: '+e.message);}
+  finally{partsDownload.disabled=false;}
  };
  report.onclick=async()=>{
   if(!lastReport)return;
   try{
    await exportFile(new Blob([JSON.stringify(lastReport,null,2)],{type:'application/json'}),
     'AmpySongScriber_DualGGUF_'+Date.now()+'.json');
-  }catch(e){say('Errore esportazione rapporto: '+e.message);}
+   say('Rapporto della doppia IA esportato.');
+  }catch(e){say('Rapporto non esportabile: '+e.message);}
  };
+ async function recover(){
+  try{
+   const latest=await reopenLastPartBuffer();
+   if(!latest)return;
+   partBuffer=latest;
+   const p=latest.sessionSummary();
+   if(!p.parts.length)return;
+   download.disabled=false;partsDownload.disabled=false;
+   logText('Sessione recuperata: '+p.parts.length+' blocchi salvati ('+
+    (p.totalSamples/FRAME_RATE).toFixed(1)+' secondi). Carica il brano originale per continuare.');
+   say('File parziali recuperati dal telefono. Scaricabili anche senza rielaborare i blocchi precedenti.');
+  }catch(e){say('Recupero parti non disponibile: '+e.message);}
+ }
+ recover();
+ button.onclick=async()=>{
+  if(busy)return;
+  busy=true;pauseRequested=false;update();
+  const stem=$('isolateInstrument').value;
+  const firstFile=fileA.files?.[0],secondFile=fileB.files?.[0];
+  const reportChunks=[];
+  let processedParts=0;
+  try{
+   if(!fileValid(firstFile)||!fileValid(secondFile))
+    throw Error('Seleziona due GGUF dalla cartella Download.');
+   if(firstFile===secondFile)throw Error('Seleziona due file GGUF indipendenti.');
+   say('Isolamento strumento selezionato in corso…');
+   await ensureSource(stem);
+   const source=getSource(stem);
+   if(!source)throw Error('Non è stata prodotta una traccia dello strumento.');
+   const context=new OfflineAudioContext(1,Math.ceil(source.duration*FRAME_RATE),FRAME_RATE);
+   const sourceNode=context.createBufferSource();
+   sourceNode.buffer=source;sourceNode.connect(context.destination);sourceNode.start();
+   const mono=await context.startRendering();
+   const totalFrames=mono.length;
+   const partFrames=FRAME_RATE*SEGMENT_SEC;
+   const totalParts=Math.ceil(totalFrames/partFrames);
+   const existing=partBuffer?.sessionSummary();
+   if(!partBuffer||existing.song!==getSong()||existing.stem!==stem||existing.complete||
+       existing.totalSamples>totalFrames){
+    partBuffer=await createPartBuffer(getSong(),stem);
+   }
+   const session=partBuffer.sessionSummary();
+   processedParts=session.parts.length;
+   const allNotes=session.parts.flatMap(p=>p.finalNotes||[]);
+   if(processedParts>totalParts)throw Error('I file parziali superano la durata del brano');
+   download.disabled=processedParts===0;
+   partsDownload.disabled=processedParts===0;
+   for(let chunk=processedParts;chunk<totalParts;chunk++){
+    if(pauseRequested)break;
+    const start=chunk*partFrames;
+    const length=Math.min(partFrames,totalFrames-start);
+    const segment=sliceMono(mono,start,length);
+    const offset=start/FRAME_RATE;
+    const marker='Blocco '+(chunk+1)+'/'+totalParts+' ('+offset.toFixed(0)+'–'+
+      (offset+length/FRAME_RATE).toFixed(0)+' s)';
+    say(marker+' · prima bozza delle note con Basic Pitch…');
+    const draft=await draftNotes(segment,stem);
+    const data={
+      stem,offsetSeconds:Number(offset.toFixed(2)),
+      measurement:measureAudio(segment),
+      draftNotes:isolateDraft(draft),
+      limits:restrictions(stem)
+    };
+    say(marker+' · GGUF 1 analizza la bozza dello spartito…');
+    const analyst=await inference(firstFile,marker+' · GGUF 1',
+      'Sei revisore 1 di spartiti musicali. Ricevi SOLO misure e note MIDI estratte da Basic Pitch, NON audio. Segnala gli errori probabili senza inventare note. Rispondi SOLO JSON: {"instrument":"guitar","suspectedIssue":"testo","noise":"low|medium|high","suggestion":"breve testo"}.',
+      JSON.stringify(data),say);
+    say(marker+' · GGUF 2 rivede la prima IA e i parametri DSP…');
+    const reviewer=await inference(secondFile,marker+' · GGUF 2',
+      'Sei revisore 2 di spartiti e parametri DSP. Ricevi note MIDI esistenti e analisi IA1, ma NON ascolti l audio. Non inventare né alterare altezze. Rispondi SOLO JSON: {"strength":0.25,"lowcut":50,"highcut":7000,"suppressUnconfirmed":false,"rejectShorterThan":0.06,"reason":"breve testo"}. Tutti i filtri saranno vincolati a range sicuri.',
+      JSON.stringify({...data,analyst:analyst.parsed}),say);
+    const params=bounds(reviewer.parsed,stem);
+    say(marker+' · pulizia spettrale FFT e ricontrollo delle note…');
+    const cleaned=await cleaningWorker(segment.getChannelData(0).slice(),params,p=>{
+      say(marker+' · filtro FFT '+p+'%');
+    });
+    const output=new AudioBuffer({length:cleaned.length,numberOfChannels:1,sampleRate:FRAME_RATE});
+    output.copyToChannel(cleaned,0);
+    const cleanNotes=await draftNotes(output,stem);
+    const accepted=reviseNotes(draft,cleanNotes,reviewer.parsed,stem);
+    const timed=accepted.map(n=>({...n,start:Number((n.start+offset).toFixed(4))}));
+    await partBuffer.appendPart(output,{
+      draftNoteCount:draft.length,
+      finalNoteCount:timed.length,
+      finalNotes:timed,
+      params
+    });
+    allNotes.push(...timed);
+    processedParts++;
+    const rec={
+      part:'part'+String(chunk+1).padStart(3,'0')+'.wav',fromSec:offset,
+      toSec:offset+length/FRAME_RATE,firstModel:firstFile.name,secondModel:secondFile.name,
+      draftNotes:draft.length,reviewedNotes:timed.length,
+      first:analyst.parsed,second:reviewer.parsed,dsp:params
+    };
+    reportChunks.push(rec);
+    download.disabled=false;partsDownload.disabled=false;
+    progress.value=Math.round(100*(chunk+1)/totalParts);
+    logText('✓ '+processedParts+'/'+totalParts+' file WAV salvati\n'+JSON.stringify(rec,null,2));
+    say('✓ '+marker+' salvato come '+rec.part+' · '+timed.length+' note. Blocco successivo…');
+    await pausePromise();
+   }
+   const done=processedParts===totalParts;
+   if(!done){
+    say('⏸ In pausa dopo '+processedParts+' blocchi. I WAV part1, part2… restano salvati. Puoi scaricarli o riprendere.');
+    return;
+   }
+   const completed=await partBuffer.finish();
+   say('Unione WAV di '+completed.parts.length+' blocchi e generazione dello spartito completo…');
+   const finalScore=await finishScore(allNotes,stem);
+   if(finalScore===false)throw Error('Generazione spartito finale non riuscita. I WAV parziali sono conservati.');
+   const report={
+     createdAt:new Date().toISOString(),song:getSong(),instrument:stem,
+     chunks:reportChunks,partCount:completed.parts.length,seconds:completed.totalSamples/FRAME_RATE,
+     estimatedNotes:allNotes.length,firstGGUF:firstFile.name,secondGGUF:secondFile.name,
+     explanation:'Ogni blocco è stato trascritto preliminarmente, analizzato da GGUF1, revisionato da GGUF2, ripulito con FFT e verificato con Basic Pitch. Note finali unite e esportabili.'
+   };
+   lastReport=report;
+   report.disabled=false;
+   logText(JSON.stringify(report,null,2));
+   onResult?.(report);
+   try{
+    const stored=await saveAnalysis({
+     question:'Spartito progressivo '+stem,
+     answer:JSON.stringify({parts:report.partCount,notes:report.estimatedNotes}),
+     song:getSong(),track:stem,model:firstFile.name+' + '+secondFile.name,status:'complete'
+    });
+    say('✓ '+report.partCount+' parti unite in WAV. Spartito completo pronto: '+allNotes.length+
+     ' note. Rapporto salvato (#'+stored.id+'). Scarica WAV/MIDI/MusicXML/PDF.');
+   }catch(e){
+    say('✓ WAV e spartito completati. Archivio IA non disponibile: '+e.message+
+      '. Esporta WAV/ZIP e spartito ora.');
+   }
+  }catch(e){
+   const msg=String(e?.message||e);
+   say('ERRORE dopo '+processedParts+' parti salvate: '+msg+
+    '. Puoi comunque scaricare le parti completate e riprendere.');
+   logText('Elaborazione parziale: '+msg);
+  }finally{
+   busy=false;pauseRequested=false;update();
+  }
+ };
+ function pausePromise(){return new Promise(resolve=>setTimeout(resolve,0));}
  return {isBusy:()=>busy};
 }
