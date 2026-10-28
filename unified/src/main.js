@@ -11,6 +11,7 @@ import {Capacitor} from '@capacitor/core';
 import {encodeWav,validateWav} from './wav.js';
 import {createMusicXML} from './notation.js';
 import {recognizeInstruments} from './instrument-ai.js';
+import {initDualGGUF} from './dual-gguf.js';
 // Language GGUF removed from critical path: use trained music models directly.
 
 const $=(id)=>document.getElementById(id);
@@ -274,10 +275,11 @@ $('zipall').onclick=async()=>{
  }catch(e){setStatus('Errore ZIP: '+e.message)}
  finally{btn('zipall',true)}
 };
-async function transcribe(){
+async function transcribe(preparedAudio=null, requestedStem=null){
  if(busy)return;busy=true;btn('transcribe',false);
  try{
-  const which=$('trackselect').value;
+  const which=requestedStem||$('trackselect').value;
+  $('trackselect').value=which;
   if(which==='drums')setStatus('La trascrizione della batteria con Basic Pitch è indicativa, non una notazione ritmica dedicata.');
   const buf=which==='original'?await decodeAudio():stems[which];
   if(!buf)throw new Error('Traccia non ancora disponibile. Separa prima l’audio.');
@@ -288,9 +290,15 @@ async function transcribe(){
   // Basic Pitch requires exactly 22,050 Hz mono. Demucs uses 44,100 Hz stereo.
   // Resample using the browser's offline audio converter, regardless of input format.
   setStatus('Conversione automatica a 22.050 Hz mono per Basic Pitch…');
-  const offline=new OfflineAudioContext(1,Math.max(1,Math.ceil(buf.duration*22050)),22050);
-  const src=offline.createBufferSource();src.buffer=buf;src.connect(offline.destination);src.start();
-  const pitchBuffer=await offline.startRendering();
+  let pitchBuffer;
+  if(preparedAudio?.sampleRate===22050&&preparedAudio?.numberOfChannels===1){
+   pitchBuffer=preparedAudio;
+   setStatus('Uso il WAV ripulito in sequenza da due GGUF e FFT per riconoscere le note…');
+  }else{
+   const offline=new OfflineAudioContext(1,Math.max(1,Math.ceil(buf.duration*22050)),22050);
+   const src=offline.createBufferSource();src.buffer=buf;src.connect(offline.destination);src.start();
+   pitchBuffer=await offline.startRendering();
+  }
   if(pitchBuffer.sampleRate!==22050||pitchBuffer.numberOfChannels!==1)throw new Error('Resampling per Basic Pitch non riuscito');
   setStatus('Trascrizione delle note a 22.050 Hz…');
   await pitch.evaluateModel(pitchBuffer,(f,o,c)=>{frames.push(...f);onsets.push(...o);contours.push(...c)},p=>{progress('midiProgress',Math.round(p*100));setStatus('Trascrizione note · '+Math.round(p*100)+'%')});
@@ -306,7 +314,8 @@ async function transcribe(){
   currentMidi=midi;currentMidiStem=which;
   await showAccurateScore();for(const k of ['pdf','xml','midi','preview'])btn(k,true);
   setStatus('Spartito MusicXML generato: '+currentNotes.length+' note · '+bpm+' BPM. Esporta PDF e MusicXML oppure modifica tempo/soglia per migliorare il risultato.');
- }catch(e){setStatus('Trascrizione non riuscita: '+(e?.message||e));console.error(e)}
+  return {noteCount:currentNotes.length,stem:which};
+ }catch(e){setStatus('Trascrizione non riuscita: '+(e?.message||e));console.error(e);return false}
  finally{$('midiProgress').style.display='none';btn('transcribe',true);busy=false;}
 }
 $('transcribe').onclick=transcribe;
@@ -483,3 +492,29 @@ async function identifyResidual(){
 $('identify').onclick=identifyResidual;
 
 
+
+
+for(const [inputId,labelId] of [['ggufAnalyst','ggufAnalystLabel'],['ggufReviewer','ggufReviewerLabel']]){
+ $(inputId).addEventListener('change',()=>{
+  const f=$(inputId).files?.[0];
+  $(labelId).textContent=f?f.name+' · '+(f.size/1048576).toFixed(0)+' MiB':'Nessun modello selezionato';
+ });
+}
+const dualGGUF=initDualGGUF({
+ getSource:stem=>stems[stem],
+ getSong:()=>audioFile?.name||'',
+ ensureSource:async stem=>{
+  if(!audioFile)throw Error('Scegli prima il brano audio');
+  if(stems[stem])return;
+  $('isolateInstrument').value=stem;
+  await separate();
+  if(!stems[stem])throw Error('Non sono riuscito a isolare '+shownStemName(stem));
+ },
+ transcribe:async(buffer,stem)=>{
+  return await transcribe(buffer,stem);
+ },
+ exportFile,
+ onResult:report=>{
+  console.info('Doppia IA: elaborazione completata',report.instrument);
+ }
+});
