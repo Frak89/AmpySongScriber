@@ -122,12 +122,14 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
   <button id="ggufRun">🧠 Avvia / Riprendi blocchi da 10 s</button>
   <p class="sub" style="width:100%;margin:1px 0 4px">Puoi scegliere i GGUF dalla Libreria IA sopra: i modelli scaricati sono ricordati senza dover ripetere il selettore Download. Il pulsante Avvia mostra un errore esplicito quando manca un modello.</p>
   <button id="ggufPause" class="secondary" disabled>⏸ Pausa dopo questo blocco</button>
-  <button id="ggufCleanWav" class="secondary" disabled>⬇ Unisci e salva WAV finale</button>
+  <button id="ggufCleanWav" class="secondary" disabled>⬇ WAV finale (solo 100% elaborato)</button>
+  <button id="ggufPartialWav" class="secondary" disabled>⬇ WAV PARZIALE (durata indicata nel nome)</button>
   <button id="ggufPartsZip" class="secondary" disabled>⬇ Scarica part1, part2… ZIP</button>
   <button id="ggufReport" class="secondary" disabled>⬇ Rapporto IA JSON</button>
  </div>
+ <p id="ggufCompletionLabel" class="notice" role="status">Durata originale: non ancora caricata · elaborazione: 0%</p>
  <progress id="ggufProgress" value="0" max="100"></progress>
- <p class="sub" style="margin-top:7px">Rev12: se Qwen non produce il primo token entro 50 secondi, il suo processo IA viene terminato. Con il fallback DSP attivo, la pulizia audio prosegue e salva <code>part001.wav</code> senza attendere altri minuti. I GGUF che si bloccano vengono saltati nei blocchi successivi e il log ne riporta il motivo.</p>
+ <p class="sub" style="margin-top:7px">Rev14: un WAV muto o incompleto non può più essere etichettato finale. Solo al 100% è possibile scaricare il WAV completo; prima puoi esportare lo ZIP o un WAV contrassegnato PARZIALE. Rev12: se Qwen non produce il primo token entro 50 secondi, il suo processo IA viene terminato. Con il fallback DSP attivo, la pulizia audio prosegue e salva <code>part001.wav</code> senza attendere altri minuti. I GGUF che si bloccano vengono saltati nei blocchi successivi e il log ne riporta il motivo.</p>
  <p id="ggufStatus" class="notice" role="status">Seleziona Qwen3-0.6B-Q4_K_M.gguf come GGUF 2. Se hai attivo il riutilizzo, GGUF 1 non è necessario. Premi Avvia per vedere una diagnosi anche se manca un file.</p>
  <div class="ampy-terminal" role="region" aria-label="Console diagnostica IA">
    <div class="ampy-terminal-bar">
