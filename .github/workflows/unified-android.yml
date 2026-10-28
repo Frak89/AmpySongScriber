@@ -36,17 +36,23 @@ jobs:
       - name: Install frontend and Android dependencies
         working-directory: unified
         run: npm install --legacy-peer-deps --no-audit --no-fund
-      - name: Include runtime, compact pitch model and 4-stem model
+      - name: Bundle offline 6-stem model and Basic Pitch
         working-directory: unified
         run: |
           mkdir -p public/ort public/models public/basic-pitch
           cp node_modules/onnxruntime-web/dist/*.wasm public/ort/
           cp node_modules/@spotify/basic-pitch/model/model.json public/basic-pitch/
           cp node_modules/@spotify/basic-pitch/model/*.bin public/basic-pitch/
-          curl --retry 4 --retry-delay 8 --connect-timeout 30 -fL \
-            'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx' \
-            -o public/models/htdemucs_embedded.onnx
-          printf 'e5e425c17683f163a472462eb5f5a4ffcd11c31858d57fbd0833b012d8b88077  public/models/htdemucs_embedded.onnx\n' | sha256sum -c -
+          curl --retry 5 --retry-delay 8 --connect-timeout 40 -fL \
+            'https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/main/htdemucs_6s_fp16weights.onnx?download=true' \
+            -o public/models/htdemucs_6s_fp16weights.onnx
+          python3 - <<'PY'
+          import pathlib,hashlib
+          model=pathlib.Path('public/models/htdemucs_6s_fp16weights.onnx')
+          assert 120_000_000 < model.stat().st_size < 200_000_000, "HTDemucs6 model truncated"
+          print("6-stem model bytes:",model.stat().st_size)
+          print("SHA256:",hashlib.sha256(model.read_bytes()).hexdigest())
+          PY
           du -h public/models/* public/basic-pitch/*
       - name: Bundle offline YAMNet instrument classifier (Apache 2.0)
         working-directory: unified
@@ -73,13 +79,6 @@ jobs:
           node scripts/test-wav.mjs
           node scripts/test-notation.mjs
           node scripts/test-qwen-history.mjs
-      - name: Bundle local GGUF inference runtime (no model download)
-        working-directory: unified
-        run: |
-          mkdir -p public/wllama
-          test -s node_modules/@wllama/wllama/esm/wasm/wllama.wasm
-          cp node_modules/@wllama/wllama/esm/wasm/wllama.wasm public/wllama/wllama.wasm
-          ls -lh public/wllama/wllama.wasm
       - name: Build embedded offline HTML/JS app
         working-directory: unified
         run: npm run build
@@ -97,10 +96,9 @@ jobs:
         working-directory: unified
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'htdemucs_embedded.onnx'
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'htdemucs_6s_fp16weights.onnx'
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'model.json'
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'yamnet/model.json'
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'wllama/wllama.wasm'
       - name: Upload directly installable APK
         uses: actions/upload-artifact@v4
         with:
