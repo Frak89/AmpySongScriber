@@ -90,6 +90,7 @@ jobs:
           node scripts/test-debug-console.mjs
           node scripts/test-dual-ui-init.mjs
           node scripts/test-gguf-worker-timeout.mjs
+          node scripts/test-model-catalog.mjs
           node scripts/test-qwen-history.mjs
       - name: Bundle local offline GGUF inference WASM runtime
         working-directory: unified
@@ -109,6 +110,9 @@ jobs:
         run: |
           npx cap add android
           npx cap sync android
+          # Confirm native file downloader plugin installed for big on-device GGUF files.
+          test -d android/capacitor-cordova-android-plugins || true
+          grep -R -l 'com.capacitorjs.plugins.filetransfer' android/app/src/main/assets/capacitor.plugins.json || grep -i 'FileTransfer' android/app/src/main/assets/capacitor.plugins.json
       - name: Assemble Android APK
         working-directory: unified/android
         run: |
