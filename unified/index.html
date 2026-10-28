@@ -60,7 +60,7 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <p class="notice">MusicXML è apribile e modificabile in MuseScore Studio. Il motore desktop GPL di MuseScore non è copiato nell'APK.</p></section>
 <section class="card" id="dualPanel">
  <h2>4. Due GGUF offline in sequenza</h2>
- <p class="sub">Seleziona due file .gguf dal telefono: l’IA 1 interpreta le misure della traccia isolata, l’IA 2 rivede l’analisi e indica filtri conservativi. Poi il motore FFT ripulisce i campioni reali e Basic Pitch genera lo spartito dello strumento scelto. Nessun modello linguistico può ascoltare direttamente il WAV.</p>
+ <p class="sub">Due GGUF lavorano in sequenza su ciascun blocco di 10 secondi. Basic Pitch crea una prima bozza di note; GGUF 1 la analizza; GGUF 2 la revisiona e suggerisce filtri conservativi. Il DSP ripulisce l’audio; Basic Pitch ricontrolla le note e il WAV viene salvato come part1.wav, part2.wav… Alla fine le parti vengono unite e viene generato il PDF dello strumento. Nessuna elaborazione continua quando Android chiude l’app: le parti già completate restano disponibili.</p>
  <div class="model-picks">
   <div class="model-card">
    <strong>IA 1 · Analisi del suono</strong>
@@ -76,13 +76,16 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
   </div>
  </div>
  <div class="actions" style="margin-top:16px">
-  <button id="ggufRun" disabled>🧠 Avvia 2 IA → Pulisci → Spartito</button>
-  <button id="ggufCleanWav" class="secondary" disabled>⬇ WAV ripulito</button>
+  <button id="ggufRun" disabled>🧠 Avvia / Riprendi blocchi da 10 s</button>
+  <button id="ggufPause" class="secondary" disabled>⏸ Pausa dopo questo blocco</button>
+  <button id="ggufCleanWav" class="secondary" disabled>⬇ Unisci e salva WAV finale</button>
+  <button id="ggufPartsZip" class="secondary" disabled>⬇ Scarica part1, part2… ZIP</button>
   <button id="ggufReport" class="secondary" disabled>⬇ Rapporto IA JSON</button>
  </div>
+ <progress id="ggufProgress" value="0" max="100"></progress>
  <p id="ggufStatus" class="notice" role="status">Seleziona entrambi i modelli. Verranno caricati uno dopo l’altro per limitare la RAM.</p>
  <pre id="ggufLog" style="font-family:monospace;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:330px;overflow-y:auto"></pre>
- <p class="sub">Dopo l’elaborazione usa i pulsanti di sezione 3 per salvare MIDI, MusicXML e PDF dello strumento. L’IA GGUF suggerisce filtri; la pulizia audio effettiva è eseguita localmente dal motore DSP. Nessun invio online.</p>
+ <p class="sub">Puoi mettere in pausa dopo il blocco corrente, scaricare lo ZIP delle parti o unire quelle già salvate. Le bozze MusicXML/MIDI vengono aggregate in un unico spartito alla fine. I due GGUF sono caricati uno alla volta e poi liberati dalla RAM: il processo può essere molto lento sul telefono.</p>
 </section>
 <section class="card"><h2>Informazioni</h2><p class="sub">Tutto offline, senza account o limiti software di utilizzo. Le tracce WAV sono audio realmente separato. Il modello 6s occupa circa 136 MB su disco, ma può richiedere oltre 1 GB di RAM durante l’inferenza. Evita brani lunghi sul primo test.</p></section>
 <footer>Songscribe (Gabriel Serna, MIT) · Spleeter (Deezer, MIT, riferimento concettuale) · HTDemucs (Meta, MIT) · Basic Pitch (Spotify, Apache 2.0) · MuseScore Studio (GPLv3, interoperabilità MusicXML) · HTDemucs-6s ONNX (StemSplitio, MIT) · YAMNet (Google, Apache 2.0)</footer>
