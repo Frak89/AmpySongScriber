@@ -102,6 +102,8 @@ export function initModelLibrary({onChange=()=>{},log=()=>{}}={}){
  function assign(role,model){
   if(!downloaded.has(model.id))return;
   assignments[role]=model.id;
+  if(assignments.first&&assignments.second&&assignments.first!==assignments.second&&$('ggufReuse'))
+   $('ggufReuse').checked=false;
   persistAssignments(assignments);
   for(const m of GGUF_CATALOG)present(m);
   say(model.title+' assegnato a '+(role==='first'?'IA 1':'IA 2')+'. Puoi avviare la pipeline offline.');
