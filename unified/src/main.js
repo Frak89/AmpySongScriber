@@ -12,6 +12,7 @@ import {encodeWav,validateWav} from './wav.js';
 import {createMusicXML} from './notation.js';
 import {recognizeInstruments} from './instrument-ai.js';
 import {initDualGGUF} from './dual-gguf.js';
+import {initModelLibrary} from './model-library.js';
 // Language GGUF removed from critical path: use trained music models directly.
 
 const $=(id)=>document.getElementById(id);
@@ -545,7 +546,13 @@ async function finishScoreFromParts(notes,stem){
  return {noteCount:currentNotes.length,stem};
 }
 
+// GGUF app-private library is usable after every restart without a file picker.
+// Keep its notifications detached until the dual model controller exists.
+let notifyLibrarySelection=()=>{};
+const modelLibrary=initModelLibrary({onChange:()=>notifyLibrarySelection()});
 const dualGGUF=initDualGGUF({
+ getRoleMeta:role=>modelLibrary.getRoleMeta(role),
+ getRoleFile:role=>modelLibrary.getRoleFile(role),
  getSong:()=>audioFile?.name||'',
  getDuration:async()=>{
   if(!audioFile)throw Error('Seleziona prima il file audio');
@@ -570,3 +577,12 @@ const dualGGUF=initDualGGUF({
   console.info('Doppia IA: elaborazione completata',report.instrument);
  }
 });
+
+
+// Selecting an external GGUF explicitly overrides the app-library role.
+for(const [input,role] of [['ggufAnalyst','first'],['ggufReviewer','second']]){
+ $(input).addEventListener('change',()=>{
+  if($(input).files?.length)modelLibrary.clearRole(role);
+ });
+}
+notifyLibrarySelection=()=>dualGGUF.refreshModels();
