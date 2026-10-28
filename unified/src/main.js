@@ -526,6 +526,10 @@ async function finishScoreFromParts(notes,stem){
  currentNotes=notes.filter(n=>n.pitch>=0&&n.pitch<=127&&n.duration>0)
   .sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
  if(!currentNotes.length)throw Error('Non sono disponibili note da esportare.');
+ if(!$('trackselect').querySelector('option[value="'+stem+'"]')){
+  const opt=document.createElement('option');opt.value=stem;opt.textContent=shownStemName(stem);
+  $('trackselect').append(opt);
+ }
  $('trackselect').value=stem;
  scoreTitle=slug(audioFile?.name||'Brano')+' · '+shownStemName(stem);
  const bpm=Math.max(40,Math.min(240,Number($('tempo').value)||120));
@@ -542,14 +546,22 @@ async function finishScoreFromParts(notes,stem){
 }
 
 const dualGGUF=initDualGGUF({
- getSource:stem=>stems[stem],
  getSong:()=>audioFile?.name||'',
- ensureSource:async stem=>{
-  if(!audioFile)throw Error('Scegli prima il brano audio');
-  if(stems[stem])return;
-  $('isolateInstrument').value=stem;
-  await separate();
-  if(!stems[stem])throw Error('Non sono riuscito a isolare '+shownStemName(stem));
+ getDuration:async()=>{
+  if(!audioFile)throw Error('Seleziona prima il file audio');
+  return (await decodeAudio()).duration;
+ },
+ getIsolatedChunk:async(stem,fromSec,durationSec)=>{
+  if(!audioFile)throw Error('Seleziona prima il file audio');
+  const source=await decodeAudio();
+  const first=Math.floor(fromSec*44100);
+  const count=Math.max(1,Math.min(source.length-first,Math.round(durationSec*44100)));
+  const buf=context.createBuffer(2,count,44100);
+  for(let c=0;c<2;c++){
+   buf.getChannelData(c).set(source.getChannelData(c).subarray(first,first+count));
+  }
+  const separated=await runDemucsInWorker(buf,stem);
+  return makeStemBuffer(separated);
  },
  draftNotes:draftNotesFromChunk,
  finishScore:finishScoreFromParts,
