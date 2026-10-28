@@ -88,3 +88,18 @@ A real Android report showed the experimental 6-source HTDemucs ONNX session fai
 An Android screenshot also showed `Ace-Qwen3-Embedding-0.6B-BF16.gguf` selected as role 1. That is **not a chat/generation model** and cannot produce the JSON interpretations required. Rev9 refuses embedding/reranker GGUFs. The user can select one generative `Qwen3-0.6B-Q4_K_M.gguf` and enable **Use GGUF 2 also for role 1**, which performs two sequential inference instances with different prompts. **This is one model serving two roles, not two independently trained models.** Alternatively, supply two real generative GGUF files.
 
 The optional **continue with conservative DSP if GGUF fails** toggle preserves progress while recording which model was skipped. It does **not** fabricate that both AIs worked. Inference remains on-device. The user's GGUF is never added to the APK. The new APK bundles both HTDemucs ONNX models and is significantly larger. End-to-end operation on the device is not guaranteed by GitHub build tests alone.
+
+
+## Rev15 — Hybrid Engine: instrument-specific offline transcription
+
+New source/comparison review: [research/HYBRID_ENGINE_SOURCE_REVIEW.md](../research/HYBRID_ENGINE_SOURCE_REVIEW.md). Also inspected user ZIP archives MusIA_Rev9_Full_Termux.zip (original composition / meter export code) and MusIA_Rev9_Esempio_Completo.zip (per-instrument PDF/MIDI/MusicXML examples). This is source-informed engineering, **not** bundling every linked Python research project into a single Android package.
+
+- Existing: offline HTDemucs4 (bass, vocals, drums, rest), experimental HTDemucs6 (guitar/piano), Spotify Basic Pitch neural note events, YAMNet labels, PCM16 verified WAV, vector score, MIDI and MusicXML.
+- New: original DSP harmonic-FFT pitch estimator independent from Basic Pitch; confidence-based fusion; Neural-only, Balanced Hybrid or Spectral-only modes; bass/vocal monophonic and piano/guitar polyphonic handling. Original DSP is additional evidence and may be wrong; confidence values must not be interpreted as calibrated probabilities.
+- New: estimated harmony chord timeline export as ChordPro text when sufficient simultaneous notes, transposition for concert C, Bb and Eb instrument notation; do not transpose original WAV.
+- New: 2–12 /4 or /8 MusicXML meter settings, adapted from the *idea* of user's MusIA Rev9 score engine.
+- New: NoteLab original offline editor for correcting MIDI pitch/timing/durations, updating the MIDI, MusicXML and PDF exports without running separation again.
+- Hybrid decoding is shared by the 10-second processing loop and full-track Crea spartito. The optional sequential GGUF text assistants remain separate and may time out; music decoding does not require them.
+- CI includes synthetic A2 bass FFT test, chord C/Am labels, transpose, source note editor validation, meter notation, WAV audibility, 95s/325s incomplete WAV reporting.
+- Limitations: no true TensorFlow/Omnizart, trained SheetSage, Python WhisperX, complex drum-transcriber or proprietary Klangio/AnthemScore models in APK. No claim that these systems' pretrained weights run in Android WebView. Some listed source code has GPL/AGPL or model noncommercial licensing: design and research ideas alone were used; no copyrighted restricted binaries copied.
+- For genuine accuracy assess with manually annotated recordings (bass, piano, vocals). An Android build can succeed while real-song note accuracy remains imperfect.
