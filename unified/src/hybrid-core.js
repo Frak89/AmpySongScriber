@@ -47,10 +47,11 @@ export function computeSpectralFrames(samples,{stem='bass',sampleRate=SR,maxSeco
    for(let h=1;h<=5;h++){
     const hz=fundamental*h;
     if(hz>SR/2-25)break;
-    const b=hz*N/SR,idx=Math.round(b);
-    // Non integer FFT bins; local max compensates Hann leakage and tuning drift.
-    const local=Math.max(spectrum[idx]||0,spectrum[idx-1]||0,spectrum[idx+1]||0);
-    const weight=h===1?1.35:1/Math.sqrt(h);
+    const b=hz*N/SR,idx=Math.floor(b),fraction=b-idx;
+    // Interpolate exact frequency to avoid giving adjacent semitones the
+    // same max FFT bin; local max caused off-by-one pitch errors on A2 tests.
+    const local=(spectrum[idx]||0)*(1-fraction)+(spectrum[idx+1]||0)*fraction;
+    const weight=h===1?1.55:1/Math.sqrt(h);
     score+=local*weight;
     matched++;
    }
