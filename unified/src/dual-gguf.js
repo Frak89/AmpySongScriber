@@ -11,7 +11,7 @@ import {saveAnalysis} from './qwen-history.js';
 import {createPartBuffer,reopenLastPartBuffer} from './part-buffer.js';
 import {initDebugConsole} from './debug-console.js';
 import {startGGUFWorker} from './gguf-worker-controller.js';
-import {downmixChannels,signalStats,preserveAudibility,completionState} from './audio-quality.js';
+import {downmixChannels,signalStats,preserveAudibility,completionState,normalizeQuietStem} from './audio-quality.js';
 const $=id=>document.getElementById(id);
 const MAX=1.5*1024*1024*1024;
 export const isGenerativeGGUF=f=>Boolean(f&&/\.gguf$/i.test(f.name)
@@ -405,8 +405,11 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     const health=preserveAudibility(mixed.samples,cleaned,{maxGain:2.5});
     if(health.bypassed)diag.warn('DSP attenuava eccessivamente il segnale: audio originale isolato preservato al posto del filtrato.');
     else diag.line('DSP: guadagno conservativo '+health.gain.toFixed(2)+'×; RMS '+health.after.db.toFixed(1)+' dBFS.');
-    const output=new AudioBuffer({length:health.samples.length,numberOfChannels:1,sampleRate:FRAME_RATE});
-    output.copyToChannel(health.samples,0);
+    const normalized=normalizeQuietStem(health.samples);
+    if(normalized.boosted)diag.line('Normalizzazione stem udibile: '+normalized.gain.toFixed(2)+'×, picco '+normalized.after.peak.toFixed(3));
+    if(normalized.inaudible)diag.warn('Stem quasi muto: nessun guadagno applicato a campioni sotto soglia. Controllare separazione e strumento selezionato.');
+    const output=new AudioBuffer({length:normalized.samples.length,numberOfChannels:1,sampleRate:FRAME_RATE});
+    output.copyToChannel(normalized.samples,0);
     const cleanNotes=await draftNotes(output,stem);
     const accepted=reviseNotes(draft,cleanNotes,reviewer.parsed,stem);
     const timed=accepted.map(n=>({...n,start:Number((n.start+offset).toFixed(4))}));
@@ -419,7 +422,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
       review:{...reviewer.parsed,modelWorked:!reviewer.skipped,error:reviewer.error||null},
       firstModel:firstFile.name,
       secondModel:secondFile.name,
-      params
+      params:{...params,normalizedGain:normalized.gain,inaudible:normalized.inaudible,stereoCancellation:mixed.cancellation}
     });
     allNotes.push(...timed);
     processedParts++;
