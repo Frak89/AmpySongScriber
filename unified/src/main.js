@@ -14,12 +14,41 @@ import {createMusicXML} from './notation.js';
 import {recognizeInstruments} from './instrument-ai.js';
 import {initDualGGUF} from './dual-gguf.js';
 import {initModelLibrary} from './model-library.js';
+import {runHybridEngine,estimateChordTimeline,makeChordPro,transposeNotes} from './hybrid-core.js';
 // Language GGUF removed from critical path: use trained music models directly.
 
 const $=(id)=>document.getElementById(id);
 const btn=(id,v)=>{$(id).disabled=!v};
 let audioFile=null, audioBuffer=null, context=null, stems={},sourceUrl=null;
 let currentMidi=null, currentNotes=[], currentMidiStem=null, scoreTitle='';
+let hybridReport=null,hybridChords=[],hybridConcertNotes=[];
+const hybridMode=()=>$('hybridMode').value;
+function hybridDisplay(result,stem){
+ hybridReport={...result.metrics,createdAt:new Date().toISOString(),instrument:stem};
+ $('hybridMetrics').textContent='Metodo '+result.metrics.mode+' · Basic Pitch '+result.metrics.neuralCount+
+  ' note · FFT '+result.metrics.spectralCount+' · Fusione '+result.metrics.fusedCount+
+  ' · divergenze '+result.metrics.disagreements+'.';
+ btn('hybridReport',true);
+}
+function prepareHybridScore(notes,stem){
+ hybridConcertNotes=notes;
+ hybridChords=stem==='bass'||stem==='drums'?[]:estimateChordTimeline(notes);
+ btn('hybridChords',hybridChords.length>0);
+ const semitones=Number($('hybridTranspose').value)||0;
+ return transposeNotes(notes,semitones);
+}
+$('hybridReport').onclick=async()=>{
+ if(!hybridReport)return;
+ try{await exportFile(new Blob([JSON.stringify(hybridReport,null,2)],{type:'application/json'}),
+  slug(audioFile?.name||'brano')+'_hybrid_evidence.json');}
+ catch(e){setStatus('Esportazione rapporto non riuscita: '+e.message);}
+};
+$('hybridChords').onclick=async()=>{
+ if(!hybridChords.length)return;
+ try{await exportFile(new Blob([makeChordPro(hybridChords,{title:audioFile?.name,bpm:Number($('tempo').value)||120})],
+  {type:'text/plain;charset=utf-8'}),slug(audioFile?.name||'brano')+'_accordi_STIMATI.cho');}
+ catch(e){setStatus('Esportazione ChordPro non riuscita: '+e.message);}
+};
 let latestInstrumentPredictions=[];
 let activeStem=null;
 let instrumentLabel='';
@@ -80,6 +109,9 @@ async function openFile(file) {
  btn('wavReference',true);
  for(const k of ['pdf','xml','midi','preview'])btn(k,false);
  btn('wavSelected',false);
+ btn('hybridChords',false);btn('hybridReport',false);
+ hybridReport=null;hybridChords=[];hybridConcertNotes=[];
+ $('hybridMetrics').textContent='Nuovo brano caricato: scegli un metodo di trascrizione.';
  btn('identify',false);$('instrumentResults').textContent='';instrumentLabel='';activeStem=null;
  $('score').style.display='none';$('tracks').replaceChildren();
  $('trackselect').innerHTML='<option value="original">Brano originale</option>';
@@ -323,10 +355,13 @@ async function transcribe(preparedAudio=null, requestedStem=null){
   }
   if(pitchBuffer.sampleRate!==22050||pitchBuffer.numberOfChannels!==1)throw new Error('Resampling per Basic Pitch non riuscito');
   setStatus('Trascrizione delle note a 22.050 Hz…');
-  await pitch.evaluateModel(pitchBuffer,(f,o,c)=>{frames.push(...f);onsets.push(...o);contours.push(...c)},p=>{progress('midiProgress',Math.round(p*100));setStatus('Trascrizione note · '+Math.round(p*100)+'%')});
+  if(hybridMode()!=='spectral')await pitch.evaluateModel(pitchBuffer,(f,o,c)=>{frames.push(...f);onsets.push(...o);contours.push(...c)},p=>{progress('midiProgress',Math.round(p*100));setStatus('Trascrizione note · '+Math.round(p*100)+'%')});
   const threshold=Math.max(.1,Math.min(.8,Number($('noteThreshold').value)||.32));
   const raw=noteFramesToTime(addPitchBendsToNoteEvents(contours,outputToNotesPoly(frames,onsets,threshold,threshold,Number($('minimumNote').value)||7)));
-  currentNotes=refineInstrumentNotes(raw,which);
+  const neural=refineInstrumentNotes(raw,which);
+  const hybrid=runHybridEngine(pitchBuffer,neural,{stem:which,mode:hybridMode()});
+  hybridDisplay(hybrid,which);
+  currentNotes=prepareHybridScore(hybrid.notes,which);
   if(!currentNotes.length)throw Error('Nessuna nota affidabile trovata per '+shownStemName(which)+'. Cambia sensibilità e riprova.');
   setStatus('Note verificate per '+shownStemName(which)+': '+currentNotes.length+'. Gamma musicale '+noteRange(which)+'.');
   const bpm=Math.max(40,Math.min(240,Number($('tempo').value)||120));
@@ -532,18 +567,22 @@ async function draftNotesFromChunk(buffer,stem){
   throw Error('Blocco Basic Pitch non mono 22050 Hz');
  if(!dualPitch)dualPitch=new BasicPitch('/basic-pitch/model.json');
  const frames=[],onsets=[],contours=[];
- await dualPitch.evaluateModel(buffer,(f,o,c)=>{
+ if(hybridMode()!=='spectral')await dualPitch.evaluateModel(buffer,(f,o,c)=>{
   frames.push(...f);onsets.push(...o);contours.push(...c);
  },()=>{});
  const threshold=Math.max(.1,Math.min(.8,Number($('noteThreshold').value)||.32));
  const raw=noteFramesToTime(addPitchBendsToNoteEvents(contours,
    outputToNotesPoly(frames,onsets,threshold,threshold,Number($('minimumNote').value)||7)));
- return refineInstrumentNotes(raw,stem);
+ const neural=refineInstrumentNotes(raw,stem);
+ const hybrid=runHybridEngine(buffer,neural,{stem,mode:hybridMode()});
+ hybridDisplay(hybrid,stem);
+ return hybrid.notes;
 }
 async function finishScoreFromParts(notes,stem){
  if(!Array.isArray(notes)||!notes.length)
   throw Error('Nessuna nota verificata nei blocchi: lo spartito non può essere generato.');
- currentNotes=reconcileInstrumentNotes(notes,stem,{duration:audioBuffer?.duration||Infinity});
+ const concert=reconcileInstrumentNotes(notes,stem,{duration:audioBuffer?.duration||Infinity});
+ currentNotes=prepareHybridScore(concert,stem);
  const removed=notes.length-currentNotes.length;
  console.info('Rev14 MIDI: note prima',notes.length,'dopo controllo',currentNotes.length,'eliminate',removed);
  if(!currentNotes.length)throw Error('Non sono disponibili note da esportare.');
