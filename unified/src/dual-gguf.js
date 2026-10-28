@@ -212,8 +212,8 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
   download=$('ggufCleanWav'),partsDownload=$('ggufPartsZip'),
   report=$('ggufReport'),progress=$('ggufProgress');
  let busy=false,pauseRequested=false,partBuffer=null,lastReport=null;
- diag.setStopHandler(()=>{pauseRequested=true;activeInferenceController?.abort();});
  const diag=initDebugConsole(exportFile);
+ diag.setStopHandler(()=>{pauseRequested=true;activeInferenceController?.abort();});
  const say=text=>{status.textContent=text;diag.line(text);};
  const logText=text=>{log.textContent=text;};
  function inspect(){
