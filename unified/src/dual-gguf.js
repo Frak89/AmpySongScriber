@@ -11,6 +11,7 @@ import {saveAnalysis} from './qwen-history.js';
 import {createPartBuffer,reopenLastPartBuffer} from './part-buffer.js';
 import {initDebugConsole} from './debug-console.js';
 import {startGGUFWorker} from './gguf-worker-controller.js';
+import {downmixChannels,signalStats,preserveAudibility,completionState} from './audio-quality.js';
 const $=id=>document.getElementById(id);
 const MAX=1.5*1024*1024*1024;
 export const isGenerativeGGUF=f=>Boolean(f&&/\.gguf$/i.test(f.name)
@@ -177,7 +178,8 @@ function isolateDraft(notes){
 export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,finishScore,exportFile,onResult,getRoleMeta=()=>null,getRoleFile=async()=>null}){
  const fileA=$('ggufAnalyst'),fileB=$('ggufReviewer'),button=$('ggufRun');
  const pause=$('ggufPause'),status=$('ggufStatus'),log=$('ggufLog'),
-  download=$('ggufCleanWav'),partsDownload=$('ggufPartsZip'),
+  download=$('ggufCleanWav'),partialDownload=$('ggufPartialWav'),partsDownload=$('ggufPartsZip'),
+  completionLabel=$('ggufCompletionLabel'),
   report=$('ggufReport'),progress=$('ggufProgress');
  let busy=false,pauseRequested=false,partBuffer=null,lastReport=null;
  const diag=initDebugConsole(exportFile);
@@ -186,6 +188,27 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
  const logText=text=>{log.textContent=text;};
  function inspect(){
   return inspectGGUFSelection(getRoleMeta('first')||fileA.files?.[0],getRoleMeta('second')||fileB.files?.[0],reuseCheck.checked);
+ }
+ function updateCompletion(){
+  const p=partBuffer?.sessionSummary();
+  if(!p||!p.parts.length){
+   download.disabled=true;partialDownload.disabled=true;
+   completionLabel.textContent='Nessun blocco disponibile: il WAV finale richiede il 100% del brano originale.';
+   return;
+  }
+  if(!p.expectedSamples){
+   download.disabled=true;partialDownload.disabled=false;
+   completionLabel.textContent='Durata originale ancora da verificare. Parti salvate: '+p.parts.length+
+    '. Carica nuovamente il brano per abilitare l unione.';
+   return;
+  }
+  const progress=completionState(p.totalSamples,p.expectedSamples);
+  const seconds=x=>Math.floor(x/60)+':'+String(Math.floor(x%60)).padStart(2,'0');
+  completionLabel.textContent='Elaborati '+seconds(progress.processedSeconds)+' su '+
+   seconds(progress.expectedSeconds)+' ('+progress.percent+'%) · '+p.parts.length+
+   ' blocchi · '+(p.complete?'SESSIONE FINALIZZATA':'ANCORA PARZIALE');
+  download.disabled=!(progress.complete&&p.complete);
+  partialDownload.disabled=p.parts.length===0||progress.complete;
  }
  function update(){
   // Critical UX: "Avvia" stays clickable so invalid/missing GGUFs can show
@@ -215,6 +238,8 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
  };
  async function exportFinal(){
   if(!partBuffer)return;
+  updateCompletion();
+  if(download.disabled){say('Il WAV finale non è disponibile: mancano blocchi. Scarica ZIP o WAV PARZIALE esplicito.');return;}
   try{
    say('Unione progressiva dei partN.wav in un unico WAV PCM16…');
    const final=await partBuffer.shareFinal();
@@ -223,6 +248,17 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
   }catch(e){say('Unione WAV fallita: '+e.message);}
  }
  download.onclick=exportFinal;
+ partialDownload.onclick=async()=>{
+  if(!partBuffer)return;
+  try{
+   const s=partBuffer.sessionSummary();
+   if(!s.expectedSamples)throw Error('Ricarica il brano originale per verificare quanto manca.');
+   const output=await partBuffer.shareFinal({allowPartial:true});
+   if(output.blob)await exportFile(output.blob,output.filename);
+   say('WAV PARZIALE esportato: '+output.completion.processedSeconds.toFixed(1)+' di '+
+    output.completion.expectedSeconds.toFixed(1)+' secondi. Non è il brano completo.');
+  }catch(e){say('WAV parziale non esportabile: '+e.message);}
+ };
  partsDownload.onclick=async()=>{
   if(!partBuffer)return;
   partsDownload.disabled=true;
@@ -249,7 +285,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
    partBuffer=latest;
    const p=latest.sessionSummary();
    if(!p.parts.length)return;
-   download.disabled=false;partsDownload.disabled=false;
+   partsDownload.disabled=false;updateCompletion();
    logText('Sessione recuperata: '+p.parts.length+' blocchi salvati ('+
     (p.totalSamples/FRAME_RATE).toFixed(1)+' secondi). Carica il brano originale per continuare.');
    say('File parziali recuperati dal telefono. Scaricabili anche senza rielaborare i blocchi precedenti.');
@@ -277,12 +313,18 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
    const totalFrames=Math.ceil(duration*FRAME_RATE);
    const partFrames=FRAME_RATE*SEGMENT_SEC;
    const totalParts=Math.ceil(totalFrames/partFrames);
+   completionLabel.textContent='Durata originale '+duration.toFixed(1)+' s: attesi '+totalParts+' blocchi da 10 secondi.';
    const existing=partBuffer?.sessionSummary();
    if(!partBuffer||existing.song!==getSong()||existing.stem!==stem||existing.complete||
        existing.totalSamples>totalFrames){
-    partBuffer=await createPartBuffer(getSong(),stem);
+    partBuffer=await createPartBuffer(getSong(),stem,null,totalFrames);
+   }
+   else if(!existing.expectedSamples){
+    partBuffer=await createPartBuffer(getSong(),stem,existing,totalFrames);
    }
    const session=partBuffer.sessionSummary();
+   if(session.expectedSamples!==totalFrames)
+    throw Error('Il brano caricato non coincide con la sessione precedente. Salva lo ZIP e riparti da zero.');
    processedParts=session.parts.length;
    reportChunks.push(...session.parts.map(p=>({
     part:p.name,fromSec:p.startSample/FRAME_RATE,
@@ -293,8 +335,8 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
    })));
    const allNotes=session.parts.flatMap(p=>p.finalNotes||[]);
    if(processedParts>totalParts)throw Error('I file parziali superano la durata del brano');
-   download.disabled=processedParts===0;
    partsDownload.disabled=processedParts===0;
+   updateCompletion();
    for(let chunk=processedParts;chunk<totalParts;chunk++){
     if(pauseRequested)break;
     const start=chunk*partFrames;
@@ -303,10 +345,17 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     say('Blocco '+(chunk+1)+'/'+totalParts+' · isolamento offline solo dei prossimi 10 secondi…');
     const isolated=await getIsolatedChunk(stem,offset,length/FRAME_RATE);
     if(!isolated)throw Error('Separazione dello strumento interrotta per il blocco '+(chunk+1));
-    const resampler=new OfflineAudioContext(1,length,FRAME_RATE);
+    const resampler=new OfflineAudioContext(2,length,FRAME_RATE);
     const sourceNode=resampler.createBufferSource();
     sourceNode.buffer=isolated;sourceNode.connect(resampler.destination);sourceNode.start();
-    const segment=await resampler.startRendering();
+    const stereo=await resampler.startRendering();
+    const mixed=downmixChannels(stereo.getChannelData(0),stereo.getChannelData(1));
+    if(mixed.cancellation)diag.warn('Fase stereo→mono: cancellazione di fase! Uso il canale '+mixed.selected+' più udibile.');
+    const segment=new AudioBuffer({numberOfChannels:1,length,sampleRate:FRAME_RATE});
+    segment.copyToChannel(mixed.samples,0);
+    const rawStats=signalStats(mixed.samples);
+    diag.line('Audio isolato '+(chunk+1)+'/'+totalParts+': RMS '+rawStats.db.toFixed(1)+' dBFS; picco '+rawStats.peak.toFixed(5));
+    if(rawStats.peak<.00012)diag.warn('La traccia isolata di questo blocco è quasi muta: il DSP non può inventare un basso assente.');
     // Heavy isolation model has been released before loading either GGUF.
     const marker='Blocco '+(chunk+1)+'/'+totalParts+' ('+offset.toFixed(0)+'–'+
       (offset+length/FRAME_RATE).toFixed(0)+' s)';
@@ -353,8 +402,11 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     const cleaned=await cleaningWorker(segment.getChannelData(0).slice(),params,p=>{
       say(marker+' · filtro FFT '+p+'%');
     });
-    const output=new AudioBuffer({length:cleaned.length,numberOfChannels:1,sampleRate:FRAME_RATE});
-    output.copyToChannel(cleaned,0);
+    const health=preserveAudibility(mixed.samples,cleaned,{maxGain:2.5});
+    if(health.bypassed)diag.warn('DSP attenuava eccessivamente il segnale: audio originale isolato preservato al posto del filtrato.');
+    else diag.line('DSP: guadagno conservativo '+health.gain.toFixed(2)+'×; RMS '+health.after.db.toFixed(1)+' dBFS.');
+    const output=new AudioBuffer({length:health.samples.length,numberOfChannels:1,sampleRate:FRAME_RATE});
+    output.copyToChannel(health.samples,0);
     const cleanNotes=await draftNotes(output,stem);
     const accepted=reviseNotes(draft,cleanNotes,reviewer.parsed,stem);
     const timed=accepted.map(n=>({...n,start:Number((n.start+offset).toFixed(4))}));
@@ -378,18 +430,21 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
       first:{...analyst.parsed,worked:!analyst.skipped},second:{...reviewer.parsed,worked:!reviewer.skipped},dsp:params
     };
     reportChunks.push(rec);
-    download.disabled=false;partsDownload.disabled=false;
+    partsDownload.disabled=false;updateCompletion();
     progress.value=Math.round(100*(chunk+1)/totalParts);
     logText('✓ '+processedParts+'/'+totalParts+' file WAV salvati\n'+JSON.stringify(rec,null,2));
-    say('✓ '+marker+' salvato come '+rec.part+' · '+timed.length+' note. Blocco successivo…');
+    say('✓ '+marker+' salvato come '+rec.part+' · '+timed.length+' note. Durata '+
+      (partBuffer.sessionSummary().totalSamples/FRAME_RATE).toFixed(1)+' / '+duration.toFixed(1)+' s. Blocco successivo…');
     await pausePromise();
    }
    const done=processedParts===totalParts;
    if(!done){
+    updateCompletion();
     say('⏸ In pausa dopo '+processedParts+' blocchi. I WAV part1, part2… restano salvati. Puoi scaricarli o riprendere.');
     return;
    }
    const completed=await partBuffer.finish();
+   updateCompletion();
    say('Unione automatica del WAV finale da '+completed.parts.length+' blocchi…');
    let merged=null;
    try{
