@@ -1,37 +1,23 @@
-// Dedicated worker for memory-heavy 4-stem inference. Keeps Android WebView UI responsive.
-// AudioBuffer and AudioContext are not available in workers; use lightweight stereo buffer view.
-import {loadDemucsModel, separateStems} from './demucs-loader.js';
-
-let session=null;
-let running=false;
-
-self.onmessage=async (event)=>{
- if(event.data?.type!=='separate'||running)return;
+// Rev7 dedicated worker: true 6-source model, single selected stem returned
+// to the UI to avoid allocating six complete WAV outputs in memory.
+import {loadDemucs6,isolateStem} from './demucs6-loader.js';
+let session=null,running=false;
+self.onmessage=async e=>{
+ if(e.data?.type!=='separate'||running)return;
  running=true;
- const {channels,sampleRate}=event.data;
+ const {channels,sampleRate,stem}=e.data;
  try{
-  if(channels.length!==2||sampleRate!==44100)throw Error('HTDemucs requires 44.1 kHz stereo. Input conversion failed.');
-  self.postMessage({type:'status',stage:'model',message:'Apertura modello locale HTDemucs (181 MB)…'});
-  if(!session){
-    session=await loadDemucsModel((m)=>{
-      self.postMessage({type:'modelProgress',stage:m.stage,percent:m.percent});
-    });
-  }
-  self.postMessage({type:'status',stage:'separating',message:'Modello pronto; separazione audio in corso'});
-  const buf={
-    numberOfChannels:2,
-    length:channels[0].length,
-    getChannelData:(i)=>channels[i]
+  if(channels?.length!==2||sampleRate!==44100)throw Error('Audio 44.1 kHz stereo richiesto');
+  self.postMessage({type:'status',stage:'model',message:'Inizializzo HTDemucs-6s locale (pesi ~136 MB)…'});
+  if(!session)session=await loadDemucs6(m=>self.postMessage({type:'modelProgress',...m}));
+  self.postMessage({type:'status',stage:'separating',message:'Isolamento: '+stem});
+  const audio={
+   length:channels[0].length,numberOfChannels:2,sampleRate:44100,
+   getChannelData:i=>channels[i]
   };
-  const result=await separateStems(session,buf,44100,(progress)=>{
-    self.postMessage({type:'progress',...progress});
-  });
-  // Transfer stems, not clone hundreds of MB of Float32Arrays.
-  const transfers=result.stemData.flat().map(a=>a.buffer);
-  self.postMessage({type:'done',result},transfers);
+  const result=await isolateStem(session,audio,stem,p=>self.postMessage({type:'progress',...p}));
+  self.postMessage({type:'done',result},result.channels.map(x=>x.buffer));
  }catch(error){
   self.postMessage({type:'error',message:String(error?.message||error),stack:String(error?.stack||'')});
- }finally{
-  running=false;
- }
+ }finally{running=false;}
 };
