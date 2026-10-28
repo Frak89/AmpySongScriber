@@ -72,6 +72,7 @@ jobs:
         run: |
           node scripts/test-wav.mjs
           node scripts/test-notation.mjs
+          node scripts/test-qwen-history.mjs
       - name: Bundle local GGUF inference runtime (no model download)
         working-directory: unified
         run: |
