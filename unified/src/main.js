@@ -415,6 +415,7 @@ function notationOptions(){
   instrument:$('trackselect').selectedOptions[0]?.textContent||'Strumento',
   bpm:Number($('tempo').value)||120,
   grid:Number($('quantization').value)||120,
+  meter:$('meter').value||'4/4',
   bass:$('trackselect').value==='bass'
  };
 }
