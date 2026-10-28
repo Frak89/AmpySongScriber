@@ -23,7 +23,7 @@ const DB=Object.freeze({
 function restrictions(stem){
  return DB[stem]||DB.other;
 }
-function bounds(raw,stem){
+export function bounds(raw,stem){
  const r=restrictions(stem),d=raw||{};
  const cl=(val,min,max,fallback)=>{
   const f=Number(val);
@@ -35,7 +35,7 @@ function bounds(raw,stem){
   highcut:cl(d.highcut,r.highcut[0],r.highcut[1],r.defaultHigh)
  };
 }
-function extractJSON(text){
+export function extractJSON(text){
  const str=String(text||'').replace(/<think>[\s\S]*?<\/think>/gi,'').trim();
  const lo=str.indexOf('{'),hi=str.lastIndexOf('}');
  if(lo<0||hi<=lo)throw Error('Il GGUF non ha generato JSON interpretabile; prova un altro modello che segua le istruzioni.');
