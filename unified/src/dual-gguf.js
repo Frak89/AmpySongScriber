@@ -148,7 +148,7 @@ function isolateDraft(notes){
   index:i,midi:n.pitch,start:Number(n.start.toFixed(3)),duration:Number(n.duration.toFixed(3))
  }));
 }
-export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,exportFile,getSong,onResult}){
+export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,finishScore,exportFile,onResult}){
  const fileA=$('ggufAnalyst'),fileB=$('ggufReviewer'),button=$('ggufRun');
  const pause=$('ggufPause'),status=$('ggufStatus'),log=$('ggufLog'),
   download=$('ggufCleanWav'),partsDownload=$('ggufPartsZip'),
@@ -237,15 +237,10 @@ export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,expo
   try{
    if(!isGenerativeGGUF(firstFile)||!isGenerativeGGUF(secondFile))
     throw Error('Serve un GGUF GENERATIVO. Il file Ace-Qwen3-Embedding non produce risposte di chat. Usa Qwen3-0.6B-Q4_K_M.gguf anche in entrambe le fasi.');
-   say('Isolamento strumento selezionato in corso…');
-   await ensureSource(stem);
-   const source=getSource(stem);
-   if(!source)throw Error('Non è stata prodotta una traccia dello strumento.');
-   const context=new OfflineAudioContext(1,Math.ceil(source.duration*FRAME_RATE),FRAME_RATE);
-   const sourceNode=context.createBufferSource();
-   sourceNode.buffer=source;sourceNode.connect(context.destination);sourceNode.start();
-   const mono=await context.startRendering();
-   const totalFrames=mono.length;
+   say('Lettura durata del brano. L isolamento verrà eseguito 10 secondi alla volta.');
+   const duration=await getDuration();
+   if(!Number.isFinite(duration)||duration<=0)throw Error('Durata audio non leggibile.');
+   const totalFrames=Math.ceil(duration*FRAME_RATE);
    const partFrames=FRAME_RATE*SEGMENT_SEC;
    const totalParts=Math.ceil(totalFrames/partFrames);
    const existing=partBuffer?.sessionSummary();
@@ -270,8 +265,15 @@ export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,expo
     if(pauseRequested)break;
     const start=chunk*partFrames;
     const length=Math.min(partFrames,totalFrames-start);
-    const segment=sliceMono(mono,start,length);
     const offset=start/FRAME_RATE;
+    say('Blocco '+(chunk+1)+'/'+totalParts+' · isolamento offline solo dei prossimi 10 secondi…');
+    const isolated=await getIsolatedChunk(stem,offset,length/FRAME_RATE);
+    if(!isolated)throw Error('Separazione dello strumento interrotta per il blocco '+(chunk+1));
+    const resampler=new OfflineAudioContext(1,length,FRAME_RATE);
+    const sourceNode=resampler.createBufferSource();
+    sourceNode.buffer=isolated;sourceNode.connect(resampler.destination);sourceNode.start();
+    const segment=await resampler.startRendering();
+    // Heavy isolation model has been released before loading either GGUF.
     const marker='Blocco '+(chunk+1)+'/'+totalParts+' ('+offset.toFixed(0)+'–'+
       (offset+length/FRAME_RATE).toFixed(0)+' s)';
     say(marker+' · prima bozza delle note con Basic Pitch…');
