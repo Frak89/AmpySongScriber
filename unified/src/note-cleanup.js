@@ -40,3 +40,55 @@ export function refineInstrumentNotes(raw,stem){
  }
  return result;
 }
+
+/**
+ * Rev14 combine musical notes after all audio parts finish.
+ * The previous implementation could create overlapping monophonic bass notes
+ * and tiny fragments from independent 10-second chunk boundaries.
+ * No invented pitch, no arbitrary key estimation or octave remapping.
+ */
+export function reconcileInstrumentNotes(notes,stem,{duration=Infinity}={}){
+ const profile=profileFor(stem);
+ const mono=stem==='bass'||stem==='vocals';
+ const minDuration=stem==='bass'?.10:profile.minDuration;
+ const list=(notes||[]).filter(n=>Number.isFinite(n.pitch)&&n.pitch>=profile.min&&n.pitch<=profile.max
+  &&Number.isFinite(n.start)&&Number.isFinite(n.duration)&&n.duration>=minDuration)
+  .map(n=>({...n,start:Math.max(0,n.start),
+   duration:Math.min(n.duration,Math.max(0,duration-n.start)),
+   velocity:Math.max(.12,Math.min(1,Number(n.velocity)||.65))}))
+  .filter(n=>n.duration>=minDuration)
+  .sort((a,b)=>a.start-b.start||b.velocity-a.velocity);
+ // Join same-pitch fragments across 10s boundaries, preserving real onset.
+ const merged=[];
+ for(const n of list){
+  const prev=[...merged].reverse().find(p=>p.pitch===n.pitch&&p.start<=n.start);
+  if(prev&&n.start<=prev.start+prev.duration+.075){
+   prev.duration=Math.max(prev.start+prev.duration,n.start+n.duration)-prev.start;
+   prev.velocity=Math.max(prev.velocity,n.velocity);
+  }else merged.push({...n});
+ }
+ if(!mono)return merged.sort((a,b)=>a.start-b.start);
+ // Bass and solo singing are mainly monophonic. Competing near-simultaneous
+ // pitches are likely octave doubling/harmonics from Basic Pitch.
+ merged.sort((a,b)=>a.start-b.start||b.velocity-a.velocity);
+ const output=[];
+ for(const n of merged){
+  const last=output[output.length-1];
+  if(!last){output.push(n);continue;}
+  const end=last.start+last.duration;
+  if(n.start<end-.025){
+   if(Math.abs(n.start-last.start)<.075){
+    const score=n.velocity*Math.sqrt(n.duration);
+    const prior=last.velocity*Math.sqrt(last.duration);
+    if(score>prior)output[output.length-1]=n;
+   }else{
+    const reduced=n.start-last.start;
+    if(reduced>=minDuration)last.duration=reduced;
+    else if(n.velocity>last.velocity*1.15)output.pop();
+    else continue;
+    output.push(n);
+   }
+  }else output.push(n);
+ }
+ return output.filter(n=>n.duration>=minDuration);
+}
