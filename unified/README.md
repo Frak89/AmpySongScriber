@@ -37,3 +37,11 @@ This is a **language model**. It reads the recognized MIDI note metadata, YAMNet
 Runtime: MIT-licensed `@wllama/wllama` (llama.cpp WebAssembly), bundled locally in the APK. The Qwen assistant supports load, inference and unload. It uses one CPU/WASM thread and a limited context to minimize memory; successful initialization depends on available Android WebView memory/architecture. The system picker must grant access to the GGUF from Downloads. The app automatically unloads Qwen before expensive audio-separation and transcription jobs; the user can load it again afterward. This has not been validated on a physical Pixel 7 Pro.
 
 GGUF access is voluntary, data stays on the device. Qwen suggestions require checking against the real music; never treat guessed instrument labels or notes as authoritative.
+
+## Rev6: Local Qwen answer saving and history
+
+Qwen Rev5 showed text only: there was **no persistent history**, and previous text cannot be reconstructed after the app closes. Rev6 stores each Qwen prompt before generation and its result afterward in local IndexedDB (fallback to localStorage if IndexedDB is restricted). It confirms success or displays a clear storage error. The History section reopens saved analyses; TXT/PDF export uses Android's share/save picker. **JSON backup and import** allow restoring history after uninstalling a debug-signed APK. An exported JSON file must be saved outside the app before uninstalling.
+
+The GGUF in Android Downloads remains outside app storage and is not duplicated: after restart, select the same file again. Saving a model path/name is not a persistent Android Storage Access Framework permission. Qwen does not itself save audio stems or edit note events; it provides textual commentary based on the already computed music data. Use the respective WAV, MIDI, MusicXML and score PDF export buttons for actual music files.
+
+Build checks include `node scripts/test-qwen-history.mjs`. A working Android APK build still does not prove that WebAssembly can run Qwen GGUF within Android WebView memory limits; this needs testing on the physical device.
