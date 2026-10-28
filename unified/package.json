@@ -19,7 +19,8 @@
     "opensheetmusicdisplay": "2.2.1",
     "web-audio-beat-detector": "^8.2.16",
     "svg2pdf.js": "2.8.1",
-    "@wllama/wllama": "3.8.1"
+    "@wllama/wllama": "3.8.1",
+    "fft.js": "4.0.4"
   },
   "devDependencies": {
     "vite": "^5.4.20",
