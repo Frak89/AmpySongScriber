@@ -60,6 +60,37 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <progress id="progress" value="0" max="100" style="display:none"></progress><p id="status" role="status">Modello integrato nella app: nessun server richiesto.</p><div id="tracks"></div><div class="actions" style="margin-top:12px"><button id="identify" class="secondary" disabled>🧠 Identifica strumento residuo (IA locale)</button></div><div id="instrumentResults" class="sub" aria-live="polite"></div></section>
 <section class="card"><h2>3. Crea note e spartito dello strumento</h2><p class="sub">IA musicale · Basic Pitch trascrive solo la traccia isolata selezionata. Un filtro specifico per lo strumento riduce note fuori estensione e duplicazioni. L’esportazione PDF/MusicXML resta modificabile; la batteria richiede ancora un modello di trascrizione ritmica dedicato.</p>
 <div class="actions"><select id="trackselect" aria-label="Traccia da trascrivere"><option value="original">Brano originale</option></select><button id="transcribe" disabled>🎼 Crea spartito</button></div>
+<div class="model-library" id="hybridEnginePanel" style="margin:15px 0;padding:14px">
+ <div class="line" style="display:flex;justify-content:space-between;align-items:center">
+  <h3 style="margin:0">Ampy Hybrid Engine · Rev15</h3>
+  <span class="sub">100% offline</span>
+ </div>
+ <p class="sub">Due rilevatori musicali realmente indipendenti: Basic Pitch (rete neurale) e analisi FFT armonica locale. Confrontano altezze e durate, riconciliano i risultati e preparano lo spartito per uno strumento. I GGUF rimangono revisori testuali opzionali; non decodificano audio.</p>
+ <div class="settings">
+  <label>Metodo di trascrizione
+   <select id="hybridMode">
+    <option value="balanced" selected>Hybrid · Basic Pitch + FFT confronto</option>
+    <option value="neural">Neurale · solo Basic Pitch</option>
+    <option value="spectral">Spettrale · solo FFT offline</option>
+   </select>
+  </label>
+  <label>Trasposizione spartito
+   <select id="hybridTranspose">
+    <option value="0" selected>Concerto · C (nessuna)</option>
+    <option value="2">Sax tenore / tromba Si♭ (+2 semitoni)</option>
+    <option value="9">Sax contralto Mi♭ (+9 semitoni)</option>
+    <option value="-12">Ottava inferiore (−12)</option>
+    <option value="12">Ottava superiore (+12)</option>
+   </select>
+  </label>
+ </div>
+ <div id="hybridMetrics" class="notice" role="status">Hybrid Engine pronto. Seleziona una traccia isolata e premi Crea spartito.</div>
+ <div class="actions">
+  <button id="hybridChords" class="secondary" disabled>🎸 Accordi stimati · ChordPro</button>
+  <button id="hybridReport" class="secondary" disabled>⬇ Rapporto confronto IA/FFT JSON</button>
+ </div>
+ <p class="sub">Le armonie sono stime, non etichette certe. La trasposizione riguarda lo spartito e il MIDI dello strumento, non altera il WAV. La batteria richiede un modello ritmico dedicato: nessun falso spartito percussivo.</p>
+</div>
 <div class="settings">
  <label>Tempo (BPM)
   <input id="tempo" type="number" min="40" max="240" value="120" step="1" title="Tempo musicale: correggilo se la partitura non va a tempo"/>
