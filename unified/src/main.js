@@ -250,6 +250,12 @@ async function separate(){
  }
 }
 $('separate').onclick=separate;
+$('wavSelected').onclick=async()=>{
+ if(!activeStem||!stems[activeStem])return;
+ try{await exportWav(stems[activeStem],slug(audioFile.name)+'_'+activeStem+'.wav');}
+ catch(e){setStatus('Download WAV non riuscito: '+String(e?.message||e));}
+};
+
 $('zipall').onclick=async()=>{
  if(!Object.keys(stems).length)return;
  btn('zipall',false);setStatus('Preparazione ZIP audio (richiede spazio e RAM)...');
@@ -294,7 +300,7 @@ async function transcribe(){
   setStatus('Note verificate per '+shownStemName(which)+': '+currentNotes.length+'. Gamma musicale '+noteRange(which)+'.');
   const bpm=Math.max(40,Math.min(240,Number($('tempo').value)||120));
   const midi=new Midi();midi.header.name=scoreTitle;midi.header.setTempo(bpm);
-  const t=midi.addTrack();t.name=which;t.instrument.number=which==='bass'?33:which==='vocals'?53:0;
+  const t=midi.addTrack();t.name=which;t.instrument.number=which==='bass'?33:which==='guitar'?24:which==='vocals'?53:0;
   for(const n of currentNotes)t.addNote({midi:n.pitch,time:n.start,duration:n.duration,velocity:n.velocity});
   currentMidi=midi;currentMidiStem=which;
   await showAccurateScore();for(const k of ['pdf','xml','midi','preview'])btn(k,true);
@@ -437,28 +443,42 @@ $('pdf').onclick=async()=>{
   console.error('Vector score export',e);
  }finally{btn('pdf',true);}
 };
-$('identify').onclick=async()=>{
+async function identifyResidual(){
  if(!stems.other)return;
  btn('identify',false);
- const area=$('instrumentResults');area.textContent='Analisi IA locale in corso…';
+ const area=$('instrumentResults');area.textContent='La seconda IA locale (YAMNet) analizza gli strumenti residui…';
  try{
-  const candidates=await recognizeInstruments(stems.other,s=>area.textContent=s);
-  latestInstrumentPredictions=candidates;
+  const candidates=await recognizeInstruments(stems.other,msg=>area.textContent=msg);
+  instrumentPredictions=candidates;latestInstrumentPredictions=candidates;
+  // Generic classes cannot justify renaming a mixed stem as one instrument.
+  const generic=new Set(['Musical instrument','Plucked string instrument','Keyboard (musical)','Percussion','Guitar','Music','Drum','Strumento musicale','Tastiera']);
+  const chosen=candidates.find(c=>c.score>=.10&&!c.weak&&!generic.has(c.name));
+  instrumentLabel=chosen?chosen.name:'';
   area.replaceChildren();
-  const title=document.createElement('strong');title.textContent='Strumenti probabili in “Altri”';area.append(title);
+  const head=document.createElement('strong');
+  head.textContent=chosen?
+   'Timbro prevalente: '+chosen.name+' (stima IA)':
+   'Strumento non identificato con sufficiente confidenza';
+  area.append(head);
   const list=document.createElement('ol');
-  for(const c of candidates){
+  for(const c of candidates.slice(0,4)){
    const li=document.createElement('li');
-   li.textContent=c.name+' · affinità '+Math.round(c.score*100)+'%'+(c.weak?' (bassa confidenza)':'');
+   li.textContent=c.name+' · affinità '+Math.round(c.score*100)+'%';
    list.append(li);
   }
   area.append(list);
-  const note=document.createElement('p');note.className='sub';
-  note.textContent='YAMNet rileva timbri probabili, non separa ulteriormente i singoli strumenti. I punteggi non rappresentano probabilità certe.';
+  const note=document.createElement('p');note.className='notice';
+  note.textContent='Questa è una classificazione di timbro: il WAV residuo potrebbe contenere più strumenti. La vera separazione dedicata è disponibile per voce, batteria, basso, chitarra e pianoforte.';
   area.append(note);
+  const title=document.querySelector('[data-stem-name="other"]');
+  if(title)title.textContent=shownStemName('other');
+  const option=$('trackselect').querySelector('option[value="other"]');
+  if(option)option.textContent=shownStemName('other');
  }catch(e){
-  area.textContent='Classificazione IA non disponibile: '+String(e?.message||e);
+  area.textContent='Identificazione non riuscita: '+String(e.message||e)+'. WAV residuo comunque disponibile.';
+  instrumentLabel='';
  }finally{btn('identify',true);}
-};
+}
+$('identify').onclick=identifyResidual;
 
 
