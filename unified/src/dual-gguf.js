@@ -157,11 +157,12 @@ export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,expo
  function update(){
   button.disabled=busy||!fileValid(fileA.files?.[0])||!fileValid(fileB.files?.[0]);
   pause.disabled=!busy;
-  if(!busy&&fileValid(fileA.files?.[0])&&fileValid(fileB.files?.[0])){
-   say('GGUF 1 e GGUF 2 pronti. Verranno caricati uno alla volta per ogni blocco.');
-  }
  }
- for(const f of [fileA,fileB])f.addEventListener('change',update);
+ for(const f of [fileA,fileB])f.addEventListener('change',()=>{
+  update();
+  if(!busy&&fileValid(fileA.files?.[0])&&fileValid(fileB.files?.[0]))
+   say('GGUF 1 e GGUF 2 pronti. Verranno caricati uno alla volta per ogni blocco.');
+ });
  pause.onclick=()=>{
   if(!busy)return;
   pauseRequested=true;
