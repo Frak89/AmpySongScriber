@@ -12,7 +12,7 @@ export const GGUF_TIMEOUTS=Object.freeze({
 export function startGGUFWorker({
  file,role,system,user,
  onStage=()=>{},onToken=()=>{},onLog=()=>{},
- timeouts=GGUF_TIMEOUTS,WorkerClass=Worker
+ timeouts=GGUF_TIMEOUTS
 }){
  let worker=null,settled=false,loadTimer=null,idleTimer=null,totalTimer=null;
  let gotText=false,observedChunks=0;
@@ -39,7 +39,7 @@ export function startGGUFWorker({
  }
  const countdown=(ms,label)=>setTimeout(()=>failed(label+' dopo '+Math.round(ms/1000)+' secondi senza completare. Worker GGUF terminato.','timeout'),ms);
  try{
-  worker=new WorkerClass(new URL('./gguf-inference-worker.js',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./gguf-inference-worker.js',import.meta.url),{type:'module'});
   onStage(role+' · inizializzazione Worker GGUF isolato');
   loadTimer=countdown(timeouts.loadMs,role+': caricamento modello oltre soglia');
   worker.onerror=e=>failed(role+': errore Worker/WASM: '+String(e?.message||e?.type||'sconosciuto'));
