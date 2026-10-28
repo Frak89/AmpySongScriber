@@ -24,10 +24,20 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <section class="card"><h2>1. Importa il brano</h2><p class="sub">MP3 / WAV / M4A / OGG compatibili con il decoder Android. Nessuna conversione manuale: l’app adatta automaticamente la frequenza di campionamento per i due modelli.</p>
 <div class="actions"><label class="filelabel" for="audiofile">📁 Scegli file audio</label><input id="audiofile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"/><strong id="filename" style="overflow-wrap:anywhere">Nessun brano selezionato</strong></div>
 <audio id="original" controls style="width:100%;margin-top:18px;display:none"></audio></section>
-<section class="card"><h2>2. Separa le tracce audio</h2><p class="sub">HTDemucs ONNX, 4 stems stereo: voce, batteria, basso, altri strumenti. Suoni reali, non sintetizzati.</p>
-<div class="actions"><button id="separate" disabled>🎚️ Separa strumenti</button><button id="cancel" class="secondary" hidden>✕ Annulla</button><button id="zipall" class="secondary" disabled>📦 Scarica WAV PCM in ZIP</button></div>
-<progress id="progress" value="0" max="100" style="display:none"></progress><p id="status" role="status">Modello integrato nella app: nessun server richiesto.</p><div id="tracks"></div><div class="actions" style="margin-top:12px"><button id="identify" class="secondary" disabled>🧠 Riconosci strumenti in “Altri” (IA locale)</button></div><div id="instrumentResults" class="sub" aria-live="polite"></div></section>
-<section class="card"><h2>3. Trascrivi e genera lo spartito</h2><p class="sub">Basic Pitch usa automaticamente audio a 22.050 Hz mono; HTDemucs lavora a 44.100 Hz stereo. Basic Pitch riconosce le note della traccia scelta. Partiture ora impaginate con OpenSheetMusicDisplay. Il risultato resta una stima: può richiedere correzioni, soprattutto con batteria e suoni complessi.</p>
+<section class="card"><h2>2. Identifica e isola lo strumento</h2>
+<p class="sub">IA 1 · HTDemucs 6s: isola una traccia WAV reale di voce, basso, batteria, chitarra o pianoforte. IA 2 · YAMNet: identifica i timbri probabili nell'audio residuo. Lavora su un solo strumento per contenere la memoria.</p>
+<div class="actions"><label for="isolateInstrument">Strumento da isolare</label>
+<select id="isolateInstrument" aria-label="Strumento da separare">
+<option value="guitar">🎸 Chitarra</option>
+<option value="piano">🎹 Pianoforte</option>
+<option value="bass">🎸 Basso</option>
+<option value="vocals">🎙️ Voce</option>
+<option value="drums">🥁 Batteria</option>
+<option value="other">🔍 Identifica altro strumento (residuo)</option>
+</select></div>
+<div class="actions"><button id="separate" disabled>🎚️ Isola strumento</button><button id="wavSelected" class="secondary" disabled>⬇ Scarica WAV isolato</button><button id="cancel" class="secondary" hidden>✕ Annulla</button><button id="zipall" class="secondary" disabled>📦 Scarica ZIP WAV</button></div>
+<progress id="progress" value="0" max="100" style="display:none"></progress><p id="status" role="status">Modello integrato nella app: nessun server richiesto.</p><div id="tracks"></div><div class="actions" style="margin-top:12px"><button id="identify" class="secondary" disabled>🧠 Identifica strumento residuo (IA locale)</button></div><div id="instrumentResults" class="sub" aria-live="polite"></div></section>
+<section class="card"><h2>3. Crea note e spartito dello strumento</h2><p class="sub">IA musicale · Basic Pitch trascrive solo la traccia isolata selezionata. Un filtro specifico per lo strumento riduce note fuori estensione e duplicazioni. L’esportazione PDF/MusicXML resta modificabile; la batteria richiede ancora un modello di trascrizione ritmica dedicato.</p>
 <div class="actions"><select id="trackselect" aria-label="Traccia da trascrivere"><option value="original">Brano originale</option></select><button id="transcribe" disabled>🎼 Crea spartito</button></div>
 <div class="settings">
  <label>Tempo (BPM)
@@ -46,42 +56,8 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 </div>
 <p class="sub">Per uno spartito più fedele seleziona prima una traccia strumentale separata. Il BPM influenza pause e durate; se il tempo reale è diverso, puoi modificarlo e premere “Anteprima MusicXML”.</p>
 <progress id="midiProgress" max="100" value="0" style="display:none"></progress><div id="score"></div>
-<div class="actions" style="margin-top:14px"><button class="secondary" id="preview" disabled>🎼 Anteprima MusicXML</button><button class="secondary" id="pdf" disabled>📄 PDF spartito</button><button class="secondary" id="xml" disabled>🎹 MusicXML · MuseScore</button><button class="secondary" id="midi" disabled>🎵 MIDI</button></div>
+<div class="actions" style="margin-top:14px"><button class="secondary" id="preview" disabled>🎼 Anteprima MusicXML</button><button class="secondary" id="pdf" disabled>⬇ PDF spartito</button><button class="secondary" id="xml" disabled>⬇ MusicXML · MuseScore</button><button class="secondary" id="midi" disabled>⬇ MIDI</button></div>
 <p class="notice">MusicXML è apribile e modificabile in MuseScore Studio. Il motore desktop GPL di MuseScore non è copiato nell'APK.</p></section>
-<section class="card" id="qwenPanel">
- <div class="line"><h2>4. AmpyQwen · Assistente musicale locale</h2><span class="tag">GGUF OFFLINE</span></div>
- <p class="sub">Usa il file <strong>Qwen3-0.6B-Q4_K_M.gguf</strong> che hai già nella cartella Download del telefono. Selezionalo tramite il gestore file Android: non viene copiato nell’APK né inviato su Internet.</p>
- <div class="actions">
-  <label class="filelabel" for="qwenFile">📂 Seleziona GGUF da Download</label>
-  <input id="qwenFile" type="file" accept=".gguf,application/octet-stream"/>
-  <button id="qwenLoad" disabled>🧠 Avvia Qwen</button>
-  <button id="qwenUnload" class="secondary">♻ Libera RAM</button>
- </div>
- <p id="qwenStatus" class="notice" role="status">Modello non caricato. Seleziona il GGUF già salvato in Download.</p>
- <p class="sub">Qwen interpreta note, classificazioni e metadati estratti dagli altri motori. Non decodifica audio e non sostituisce HTDemucs, Basic Pitch o YAMNet. Per evitare problemi di memoria, caricalo dopo aver completato la separazione.</p>
- <div class="actions">
-  <button class="secondary" data-ampy-ai="Interpreta le note presenti e segnala possibili errori di intonazione o ritmo basandoti soltanto sui dati disponibili.">🎼 Analizza spartito</button>
-  <button class="secondary" data-ampy-ai="Interpreta gli strumenti probabili rilevati da YAMNet, spiegando i limiti della classificazione.">🎸 Analizza strumenti</button>
-  <button class="secondary" data-ampy-ai="Suggerisci una sequenza di miglioramenti per la trascrizione, considerando strumenti, tempo e numero di note.">🛠️ Consiglia correzioni</button>
- </div>
- <textarea id="qwenPrompt" rows="3" placeholder="Chiedi a Qwen di spiegare il risultato o suggerire correzioni musicali…" style="display:block;width:100%;resize:vertical;background:#222d46;color:#fff;border:1px solid #51607e;border-radius:10px;padding:12px;margin:14px 0;font:inherit;"></textarea>
- <button id="qwenAsk" disabled>Invia a Qwen (offline)</button>
- <pre id="qwenOutput" aria-live="polite" style="font-family:inherit;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:14px;margin-top:16px;"></pre>
- <div class="actions" style="margin-top:12px">
-  <button id="qwenSave" class="secondary" disabled>💾 Salva analisi</button>
-  <button id="qwenTxt" class="secondary" disabled>⬇ Esporta TXT</button>
-  <button id="qwenPdf" class="secondary" disabled>📄 Esporta PDF analisi</button>
-  <button id="qwenBackup" class="secondary">📦 Backup cronologia JSON</button>
-  <label class="filelabel" for="qwenRestoreFile">♻ Ripristina backup JSON</label>
-  <input id="qwenRestoreFile" type="file" accept=".json,application/json"/>
- </div>
- <p id="qwenSaveStatus" class="sub" role="status">Le risposte completate saranno salvate automaticamente nell’archivio locale. Per conservarle anche dopo la disinstallazione, esporta un backup.</p>
- <div class="card" style="padding:14px;margin-top:16px">
-  <div class="line"><h3 style="margin:0;font-size:17px">📚 Analisi Qwen salvate</h3><button id="qwenRefresh" class="secondary">Aggiorna</button></div>
-  <div id="qwenHistory" class="sub" aria-live="polite">Caricamento archivio locale…</div>
- </div>
-
-</section>
-<section class="card"><h2>Informazioni</h2><p class="sub">Modulo unico senza login, abbonamenti o limiti di utilizzo imposti dal software. Elaborazioni lunghe richiedono molta RAM, CPU e batteria. Il modello di separazione pesa circa 181 MB per consentire l’uso offline dal primo avvio.</p></section>
-<footer>Songscribe (Gabriel Serna, MIT) · Spleeter (Deezer, MIT, riferimento concettuale) · HTDemucs (Meta, MIT) · Basic Pitch (Spotify, Apache 2.0) · MuseScore Studio (GPLv3, interoperabilità MusicXML) · wllama/llama.cpp (MIT, Qwen3 GGUF opzionale)</footer>
+<section class="card"><h2>Informazioni</h2><p class="sub">Tutto offline, senza account o limiti software di utilizzo. Le tracce WAV sono audio realmente separato. Il modello 6s occupa circa 136 MB su disco, ma può richiedere oltre 1 GB di RAM durante l’inferenza. Evita brani lunghi sul primo test.</p></section>
+<footer>Songscribe (Gabriel Serna, MIT) · Spleeter (Deezer, MIT, riferimento concettuale) · HTDemucs (Meta, MIT) · Basic Pitch (Spotify, Apache 2.0) · MuseScore Studio (GPLv3, interoperabilità MusicXML) · HTDemucs-6s ONNX (StemSplitio, MIT) · YAMNet (Google, Apache 2.0)</footer>
 </main><script type="module" src="/src/main.js"></script></body></html>
