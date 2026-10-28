@@ -1,4 +1,5 @@
-import {STEM_LABELS,STEM_KEYS} from './demucs6-loader.js';
+const STEM_KEYS=['drums','bass','other','vocals','guitar','piano'];
+const STEM_LABELS={drums:'🥁 Batteria',bass:'🎸 Basso',other:'🔍 Strumento residuo da identificare',vocals:'🎙️ Voce',guitar:'🎸 Chitarra',piano:'🎹 Pianoforte'};
 import {refineInstrumentNotes,noteRange} from './note-cleanup.js';
 import {BasicPitch, outputToNotesPoly, addPitchBendsToNoteEvents, noteFramesToTime} from '@spotify/basic-pitch';
 import {Midi} from '@tonejs/midi';
