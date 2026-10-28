@@ -9,6 +9,7 @@
  */
 import {saveAnalysis} from './qwen-history.js';
 import {createPartBuffer,reopenLastPartBuffer} from './part-buffer.js';
+import {initDebugConsole} from './debug-console.js';
 const $=id=>document.getElementById(id);
 const MAX=1.5*1024*1024*1024;
 export const isGenerativeGGUF=f=>Boolean(f&&/\.gguf$/i.test(f.name)
@@ -79,29 +80,74 @@ export function measureAudio(buf){
   sampledZeroCrossRatio:Number((zc/Math.max(1,count)).toFixed(3))
  };
 }
-async function inference(file,role,system,user,onStatus){
- if(!isGenerativeGGUF(file))throw Error(role+': file GGUF non selezionato o dimensione non valida');
- let llm=null;
+// Currently executing GGUF inference. "Stop" is a cooperative AbortSignal;
+ // a long running model load may not be interruptible immediately by WebView.
+let activeInferenceController=null;
+async function inference(file,role,system,user,onStatus,diag){
+ if(!isGenerativeGGUF(file))throw Error(role+': serve un GGUF generativo valido');
+ let llm=null,received='',streamedChunks=0;
+ const abort=new AbortController();
+ activeInferenceController=abort;
+ const start=Date.now();
  try{
+  diag.stage(role+' · inizializzazione');
+  diag.line('File: '+file.name+' · '+(file.size/1048576).toFixed(0)+' MiB; n_ctx=1280, n_batch=64, 1 thread');
   const {Wllama}=await import('@wllama/wllama/esm/index.js');
-  llm=new Wllama({default:'/wllama/wllama.wasm'},{allowOffline:true});
-  onStatus(role+': caricamento di '+file.name+' dalla cartella Download…');
-  await llm.loadModel([file],{n_ctx:1280,n_batch:64,n_threads:1,n_gpu_layers:0});
-  onStatus(role+': modello pronto. Generazione dei parametri…');
-  const generated=await llm.createChatCompletion({
-   messages:[{role:'system',content:system},{role:'user',content:user+' /no_think'}],
-   temperature:.12,top_p:.85,max_tokens:230,stream:false
+  diag.line('Runtime wllama importato. WASM locale /wllama/wllama.wasm');
+  llm=new Wllama({default:'/wllama/wllama.wasm'},{
+    allowOffline:true,logger:diag.modelLogger
   });
-  const answer=String(generated?.choices?.[0]?.message?.content||'');
-  if(!answer.trim())throw Error(role+': il modello non ha restituito alcuna risposta.');
-  return {parsed:extractJSON(answer),raw:answer.slice(0,2000)};
+  onStatus(role+': caricamento di '+file.name+' dalla cartella Download…');
+  diag.stage(role+' · caricamento GGUF');
+  await llm.loadModel([file],{n_ctx:1280,n_batch:64,n_threads:1,n_gpu_layers:0});
+  if(abort.signal.aborted)throw Error('Interrotto manualmente dopo il caricamento del GGUF');
+  diag.line('Modello caricato in '+((Date.now()-start)/1000).toFixed(1)+' s. Ora preparo il prompt.');
+  const promptLength=system.length+user.length;
+  diag.line('Prompt: '+promptLength+' caratteri (misure numeriche e note, nessun file audio).');
+  diag.stage(role+' · generazione token in streaming');
+  onStatus(role+': generazione parametri, console token attiva…');
+  // wllama supports streaming callbacks and AbortSignal. This avoids waiting
+  // for a monolithic completion and allows the console to expose real progress.
+  await llm.createChatCompletion({
+   messages:[{role:'system',content:system},{role:'user',content:user+' /no_think'}],
+   chat_template_kwargs:{enable_thinking:false},
+   temperature:.12,top_p:.85,max_tokens:200,
+   stream:true,abortSignal:abort.signal,
+   onData:chunk=>{
+    streamedChunks++;
+    const delta=chunk?.choices?.[0]?.delta;
+    const segment=String(delta?.content||delta?.reasoning_content||'');
+    if(segment){received+=segment;diag.token(segment);}
+    if(chunk?.choices?.[0]?.finish_reason)diag.line('GGUF finish_reason='+chunk.choices[0].finish_reason);
+   }
+  });
+  diag.flushToken();
+  diag.line('Ricevuti '+streamedChunks+' chunk in '+((Date.now()-start)/1000).toFixed(1)+' s.');
+  if(abort.signal.aborted)throw Error('Generazione interrotta manualmente');
+  const answer=received.trim();
+  if(!answer)throw Error(role+': modello terminato senza generare testo; vedi console. '+streamedChunks+' chunk.');
+  const parsed=extractJSON(answer);
+  diag.line('JSON interpretato correttamente: '+Object.keys(parsed).slice(0,12).join(', '));
+  return {parsed,raw:answer.slice(0,3000),chunks:streamedChunks};
  }catch(e){
-  throw Error(role+' non disponibile: '+String(e?.message||e)+'. Alcuni GGUF non sono compatibili con la memoria WebView del telefono.');
+  diag.flushToken();
+  const details=String(e?.stack||e?.message||e);
+  diag.error(role+' · '+details);
+  if(abort.signal.aborted){
+   const err=new Error('Generazione GGUF interrotta dall utente.');
+   err.userCancelled=true;
+   throw err;
+  }
+  throw Error(role+' non disponibile: '+String(e?.message||e)+
+   '. Controlla il log: memoria Android, formato GGUF o mancata generazione.');
  }finally{
   if(llm){
-   onStatus(role+': rilascio memoria prima della fase successiva…');
-   try{await llm.exit()}catch(e){onStatus(role+': impossibile rilasciare completamente il modello: '+e.message);}
+   diag.stage(role+' · rilascio memoria');
+   onStatus(role+': libero il GGUF dalla RAM…');
+   try{await llm.exit();diag.line('GGUF rilasciato dopo '+((Date.now()-start)/1000).toFixed(1)+' s.');}
+   catch(e){diag.warn('Rilascio memoria GGUF non riuscito: '+e.message);}
   }
+  if(activeInferenceController===abort)activeInferenceController=null;
   await pause();
  }
 }
@@ -154,7 +200,9 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
   download=$('ggufCleanWav'),partsDownload=$('ggufPartsZip'),
   report=$('ggufReport'),progress=$('ggufProgress');
  let busy=false,pauseRequested=false,partBuffer=null,lastReport=null;
- const say=text=>{status.textContent=text;};
+ diag.setStopHandler(()=>{pauseRequested=true;activeInferenceController?.abort();});
+ const diag=initDebugConsole(exportFile);
+ const say=text=>{status.textContent=text;diag.line(text);};
  const logText=text=>{log.textContent=text;};
  function update(){
   const reuse=$('ggufReuse').checked;
@@ -229,7 +277,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
  recover();
  button.onclick=async()=>{
   if(busy)return;
-  busy=true;pauseRequested=false;update();
+  busy=true;pauseRequested=false;diag.setActive(true);diag.stage('Avvio pipeline a blocchi da 10 s');update();
   const stem=$('isolateInstrument').value;
   const secondFile=fileB.files?.[0],firstFile=$('ggufReuse').checked?secondFile:fileA.files?.[0];
   const reportChunks=[];
@@ -289,9 +337,9 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     try{
      analyst=await inference(firstFile,marker+' · GGUF 1',
       'Sei revisore 1 di spartiti musicali. Ricevi SOLO misure e note MIDI estratte da Basic Pitch, NON audio. Segnala gli errori probabili senza inventare note. Rispondi SOLO JSON: {"instrument":"guitar","suspectedIssue":"testo","noise":"low|medium|high","suggestion":"breve testo"}.',
-      JSON.stringify(data),say);
+      JSON.stringify(data),say,diag);
     }catch(error){
-     if(!$('ggufSafeFallback').checked)throw error;
+     if(error?.userCancelled||pauseRequested||!$('ggufSafeFallback').checked)throw error;
      analyst={parsed:{instrument:stem,noise:'unknown',suggestion:'Analisi IA1 non riuscita, preservare le note originali'},
       skipped:true,error:String(error.message||error)};
      say('ATTENZIONE: GGUF 1 non ha risposto. Continuo con dati musicali verificabili, senza attribuirgli un analisi inesistente.');
@@ -301,9 +349,9 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     try{
      reviewer=await inference(secondFile,marker+' · GGUF 2',
       'Sei revisore 2 di spartiti e parametri DSP. Ricevi note MIDI esistenti e analisi IA1, ma NON ascolti l audio. Non inventare né alterare altezze. Rispondi SOLO JSON: {"strength":0.25,"lowcut":50,"highcut":7000,"suppressUnconfirmed":false,"rejectShorterThan":0.06,"reason":"breve testo"}. Tutti i filtri saranno vincolati a range sicuri.',
-      JSON.stringify({...data,analyst:analyst.parsed}),say);
+      JSON.stringify({...data,analyst:analyst.parsed}),say,diag);
     }catch(error){
-     if(!$('ggufSafeFallback').checked)throw error;
+     if(error?.userCancelled||pauseRequested||!$('ggufSafeFallback').checked)throw error;
      reviewer={parsed:{strength:.12,lowcut:restrictions(stem).defaultLow,
         highcut:restrictions(stem).defaultHigh,suppressUnconfirmed:false,
         rejectShorterThan:.055,reason:'DSP conservativo di fallback; GGUF2 non riuscito'},
@@ -391,7 +439,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     '. Puoi comunque scaricare le parti completate e riprendere.');
    logText('Elaborazione parziale: '+msg);
   }finally{
-   busy=false;pauseRequested=false;update();
+   busy=false;pauseRequested=false;diag.setActive(false);update();
   }
  };
  function pausePromise(){return new Promise(resolve=>setTimeout(resolve,0));}
