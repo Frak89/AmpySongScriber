@@ -54,8 +54,8 @@ async function readJSON(path){
  const result=await Filesystem.readFile({path,directory:Directory.Data,encoding:Encoding.UTF8});
  return JSON.parse(String(result.data));
 }
-export async function createPartBuffer(song,stem){
- const session={
+export async function createPartBuffer(song,stem,restored=null){
+ const session=restored||{
   schema:1,
   id:new Date().toISOString().replace(/[-:.TZ]/g,'')+'_'+Math.floor(Math.random()*10000),
   song:String(song||'brano').slice(0,180),stem:String(stem),
@@ -63,14 +63,14 @@ export async function createPartBuffer(song,stem){
   parts:[],totalSamples:0,complete:false
  };
  if(native()){
-  await Filesystem.mkdir({path:ROOT+'/'+session.id,directory:Directory.Data,recursive:true});
+  if(!restored)await Filesystem.mkdir({path:ROOT+'/'+session.id,directory:Directory.Data,recursive:true});
   await writeJSON(LAST,session);
  }
  const webParts=[];
  async function persist(){
   if(native())await writeJSON(LAST,session);
  }
- async function appendPart(buf){
+ async function appendPart(buf,metadata={}){
   if(session.complete)throw Error('Sessione già completata');
   if(buf.sampleRate!==22050||buf.numberOfChannels!==1||buf.length===0)
    throw Error('Parte richiede audio mono a 22050 Hz');
@@ -78,7 +78,10 @@ export async function createPartBuffer(song,stem){
   const wave=encodeWav(buf);
   await validateWav(wave);
   const bytes=new Uint8Array(await wave.arrayBuffer());
-  const data={name:partName,frames:buf.length,bytes:bytes.length,startSample:session.totalSamples};
+  const data={name:partName,frames:buf.length,bytes:bytes.length,startSample:session.totalSamples,
+   draftNoteCount:Number(metadata.draftNoteCount)||0,finalNoteCount:Number(metadata.finalNoteCount)||0,
+   finalNotes:Array.isArray(metadata.finalNotes)?metadata.finalNotes.slice(0,500):[],
+   params:metadata.params||{}};
   if(native()){
    const path=ROOT+'/'+session.id+'/'+partName;
    await Filesystem.writeFile({directory:Directory.Data,path,data:b64(bytes),recursive:true});
@@ -160,4 +163,10 @@ export async function createPartBuffer(song,stem){
 export async function lastPartSession(){
  if(!native())return null;
  try{return await readJSON(LAST);}catch{return null;}
+}
+
+export async function reopenLastPartBuffer(){
+ const last=await lastPartSession();
+ if(!last)return null;
+ return createPartBuffer(last.song,last.stem,last);
 }
