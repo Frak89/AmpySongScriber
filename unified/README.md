@@ -60,3 +60,21 @@ This replaces the prior 4-source ONNX model. The source is available from:
 https://huggingface.co/StemSplitio/htdemucs-6s-onnx
 
 This Android target is not performance-tested on a Pixel 7 Pro. Model memory, long audio, and WebView constraints may still cause failures. No server is used during inference. Qwen files and experiments remain in git history but the Rev7 critical path is entirely music-model based.
+
+## Rev8: two offline GGUF assistants processing 10-second parts (experimental)
+
+Two user-supplied local GGUF models are selected independently with Android's system file picker. Models are used **sequentially** (not simultaneously), via a packaged single-threaded llama.cpp WASM runtime. No GGUF weights are downloaded or bundled at app runtime.
+
+For every 10-second chunk of one real HTDemucs 6s isolated source:
+
+1. Basic Pitch estimates a **draft** of the notes and time positions.
+2. GGUF 1 analyzes numerical audio measurements and the **draft**, returns a small JSON interpretation.
+3. GGUF 1 is unloaded. GGUF 2 loads and reviews the first model's analysis and proposes **bounded** DSP settings and conservative note-rejection settings. No model is permitted to invent new pitches.
+4. GGUF 2 is unloaded. FFT-based spectral suppression is applied to actual mono PCM using the bounded parameters. Basic Pitch estimates pitches **again** on the cleaned chunk; conservative comparisons remove very short or unsupported transient notes.
+5. The 10-second cleaned audio is saved as a real mono 22,050 Hz PCM16 WAV named `part001.wav`, `part002.wav`, … in Android app-private persistent Data storage. A manifest is committed only after file-size verification; it also contains the draft notes, final notes and both models' interpretations. These part files are retained on app process restart (but **lost on app uninstall**).
+6. A user can pause **after the current block**, resume by selecting the same song and GGUFs, or export a ZIP of WAV parts and individual `partNNN_draft.musicxml` and `partNNN_revised.musicxml` previews.
+7. At completion the app merges the PCM payloads in order into one verified standard RIFF/WAVE output without loading every part simultaneously, then compiles merged MIDI, MusicXML and vector PDF scores.
+
+**Important limitations:** GGUF models are text models and **do not directly listen to the song**. Audio decoding and isolation use HTDemucs, pitch detection uses Basic Pitch and cleaning uses numerical DSP; the model inputs are numeric summaries and draft MIDI only. Their suggestions may degrade audio instead of improving it, and the note score can still have mistakes. Loading and unloading two GGUF models **for each chunk** can be extremely slow on mobile devices, even if the process remains responsive. Processing **stops** when the app is terminated or Android kills the process; no background execution is promised. App-private parts persist across process restarts but not uninstall. Export parts to external storage before uninstalling debug APKs. Physical Pixel 7 Pro GGUF inference is not verified.
+
+CI regressions include FFT filtering, JSON/bounds and merging `part001.wav` plus `part002.wav`.
