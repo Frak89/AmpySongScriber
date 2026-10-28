@@ -1,6 +1,6 @@
 const STEM_KEYS=['drums','bass','other','vocals','guitar','piano'];
 const STEM_LABELS={drums:'🥁 Batteria',bass:'🎸 Basso',other:'🔍 Strumento residuo da identificare',vocals:'🎙️ Voce',guitar:'🎸 Chitarra',piano:'🎹 Pianoforte'};
-import {refineInstrumentNotes,noteRange} from './note-cleanup.js';
+import {refineInstrumentNotes,noteRange,reconcileInstrumentNotes} from './note-cleanup.js';
 import {BasicPitch, outputToNotesPoly, addPitchBendsToNoteEvents, noteFramesToTime} from '@spotify/basic-pitch';
 import {Midi} from '@tonejs/midi';
 import JSZip from 'jszip';
@@ -524,9 +524,11 @@ async function draftNotesFromChunk(buffer,stem){
 async function finishScoreFromParts(notes,stem){
  if(!Array.isArray(notes)||!notes.length)
   throw Error('Nessuna nota verificata nei blocchi: lo spartito non può essere generato.');
- currentNotes=notes.filter(n=>n.pitch>=0&&n.pitch<=127&&n.duration>0)
-  .sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+ currentNotes=reconcileInstrumentNotes(notes,stem,{duration:audioBuffer?.duration||Infinity});
+ const removed=notes.length-currentNotes.length;
+ console.info('Rev14 MIDI: note prima',notes.length,'dopo controllo',currentNotes.length,'eliminate',removed);
  if(!currentNotes.length)throw Error('Non sono disponibili note da esportare.');
+ if(stem==='bass')setStatus('MIDI basso: '+currentNotes.length+' note monofoniche, duplicati e frammenti eliminati ('+removed+').');
  if(!$('trackselect').querySelector('option[value="'+stem+'"]')){
   const opt=document.createElement('option');opt.value=stem;opt.textContent=shownStemName(stem);
   $('trackselect').append(opt);
