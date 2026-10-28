@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {cleanSamples} from '../src/audio-cleaner-worker.js';
-import {bounds,extractJSON,measureAudio,isGenerativeGGUF} from '../src/dual-gguf.js';
+import {bounds,extractJSON,measureAudio,isGenerativeGGUF,inspectGGUFSelection} from '../src/dual-gguf.js';
 const frames=22050;
 const wave=new Float32Array(frames);
 for(let i=0;i<frames;i++){
@@ -25,3 +25,19 @@ console.log('PASS: FFT cleaner finite audio, bounded parameters, JSON parsing, s
 assert.equal(isGenerativeGGUF({name:'Ace-Qwen3-Embedding-0.6B-BF16.gguf',size:1141*1048576}),false);
 assert.equal(isGenerativeGGUF({name:'Qwen3-0.6B-Q4_K_M.gguf',size:378*1048576}),true);
 console.log('PASS: embedding GGUF rejected and generative Qwen3 accepted');
+
+const qwen={name:'Qwen3-0.6B-Q4_K_M.gguf',size:378*1048576};
+const embedding={name:'Ace-Qwen3-Embedding-0.6B-BF16.gguf',size:1141*1048576};
+const absent=inspectGGUFSelection(undefined,undefined,true);
+assert.equal(absent.ok,false);
+assert.match(absent.message,/GGUF 2 non selezionato/);
+const reusable=inspectGGUFSelection(embedding,qwen,true);
+assert.equal(reusable.ok,true,'valid GGUF2 must work even if GGUF1 is embedding, when reuse is enabled');
+assert.equal(reusable.first,qwen);
+assert.equal(reusable.second,qwen);
+const invalid=inspectGGUFSelection(embedding,qwen,false);
+assert.equal(invalid.ok,false);
+assert.match(invalid.message,/GGUF 1 non valido/);
+const dual=inspectGGUFSelection(qwen,{...qwen,name:'Qwen3-1.7B-Q4_K_M.gguf'},false);
+assert.equal(dual.ok,true);
+console.log('PASS: Start preflight yields actionable messages and supports single Qwen reused in two sequential roles');
