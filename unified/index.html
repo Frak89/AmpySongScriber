@@ -67,6 +67,18 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
  <textarea id="qwenPrompt" rows="3" placeholder="Chiedi a Qwen di spiegare il risultato o suggerire correzioni musicali…" style="display:block;width:100%;resize:vertical;background:#222d46;color:#fff;border:1px solid #51607e;border-radius:10px;padding:12px;margin:14px 0;font:inherit;"></textarea>
  <button id="qwenAsk" disabled>Invia a Qwen (offline)</button>
  <pre id="qwenOutput" aria-live="polite" style="font-family:inherit;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:14px;margin-top:16px;"></pre>
+ <div class="actions" style="margin-top:12px">
+  <button id="qwenSave" class="secondary" disabled>💾 Salva analisi</button>
+  <button id="qwenTxt" class="secondary" disabled>⬇ Esporta TXT</button>
+  <button id="qwenPdf" class="secondary" disabled>📄 Esporta PDF analisi</button>
+  <button id="qwenBackup" class="secondary">📦 Backup cronologia JSON</button>
+ </div>
+ <p id="qwenSaveStatus" class="sub" role="status">Le risposte completate saranno salvate automaticamente nell’archivio locale. Per conservarle anche dopo la disinstallazione, esporta un backup.</p>
+ <div class="card" style="padding:14px;margin-top:16px">
+  <div class="line"><h3 style="margin:0;font-size:17px">📚 Analisi Qwen salvate</h3><button id="qwenRefresh" class="secondary">Aggiorna</button></div>
+  <div id="qwenHistory" class="sub" aria-live="polite">Caricamento archivio locale…</div>
+ </div>
+
 </section>
 <section class="card"><h2>Informazioni</h2><p class="sub">Modulo unico senza login, abbonamenti o limiti di utilizzo imposti dal software. Elaborazioni lunghe richiedono molta RAM, CPU e batteria. Il modello di separazione pesa circa 181 MB per consentire l’uso offline dal primo avvio.</p></section>
 <footer>Songscribe (Gabriel Serna, MIT) · Spleeter (Deezer, MIT, riferimento concettuale) · HTDemucs (Meta, MIT) · Basic Pitch (Spotify, Apache 2.0) · MuseScore Studio (GPLv3, interoperabilità MusicXML) · wllama/llama.cpp (MIT, Qwen3 GGUF opzionale)</footer>
