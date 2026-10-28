@@ -15,6 +15,7 @@ import {recognizeInstruments} from './instrument-ai.js';
 import {initDualGGUF} from './dual-gguf.js';
 import {initModelLibrary} from './model-library.js';
 import {runHybridEngine,estimateChordTimeline,makeChordPro,transposeNotes} from './hybrid-core.js';
+import {initHybridNoteEditor} from './hybrid-editor.js';
 // Language GGUF removed from critical path: use trained music models directly.
 
 const $=(id)=>document.getElementById(id);
@@ -22,6 +23,7 @@ const btn=(id,v)=>{$(id).disabled=!v};
 let audioFile=null, audioBuffer=null, context=null, stems={},sourceUrl=null;
 let currentMidi=null, currentNotes=[], currentMidiStem=null, scoreTitle='';
 let hybridReport=null,hybridChords=[],hybridConcertNotes=[];
+let hybridEditorController=null;
 const hybridMode=()=>$('hybridMode').value;
 function hybridDisplay(result,stem){
  hybridReport={...result.metrics,createdAt:new Date().toISOString(),instrument:stem};
@@ -111,6 +113,8 @@ async function openFile(file) {
  btn('wavSelected',false);
  btn('hybridChords',false);btn('hybridReport',false);
  hybridReport=null;hybridChords=[];hybridConcertNotes=[];
+ hybridEditorController?.setEnabled(false);
+ $('hybridEditorPanel').hidden=true;
  $('hybridMetrics').textContent='Nuovo brano caricato: scegli un metodo di trascrizione.';
  btn('identify',false);$('instrumentResults').textContent='';instrumentLabel='';activeStem=null;
  $('score').style.display='none';$('tracks').replaceChildren();
@@ -370,6 +374,7 @@ async function transcribe(preparedAudio=null, requestedStem=null){
   for(const n of currentNotes)t.addNote({midi:n.pitch,time:n.start,duration:n.duration,velocity:n.velocity});
   currentMidi=midi;currentMidiStem=which;
   await showAccurateScore();for(const k of ['pdf','xml','midi','preview'])btn(k,true);
+  hybridEditorController?.setEnabled(true);
   setStatus('Spartito MusicXML generato: '+currentNotes.length+' note · '+bpm+' BPM. Esporta PDF e MusicXML oppure modifica tempo/soglia per migliorare il risultato.');
   return {noteCount:currentNotes.length,stem:which};
  }catch(e){setStatus('Trascrizione non riuscita: '+(e?.message||e));console.error(e);return false}
@@ -603,6 +608,7 @@ async function finishScoreFromParts(notes,stem){
  currentMidi=midi;currentMidiStem=stem;
  await showAccurateScore();
  for(const key of ['pdf','xml','midi','preview'])btn(key,true);
+ hybridEditorController?.setEnabled(true);
  return {noteCount:currentNotes.length,stem};
 }
 
@@ -646,3 +652,31 @@ for(const [input,role] of [['ggufAnalyst','first'],['ggufReviewer','second']]){
  });
 }
 notifyLibrarySelection=()=>dualGGUF.refreshModels();
+
+hybridEditorController=initHybridNoteEditor({
+ getNotes:()=>currentNotes,
+ onApply:async notes=>{
+  if(!currentMidiStem)throw Error('Prima genera uno spartito.');
+  currentNotes=notes;
+  // Current notes already carry written-pitch transposition. Manual edits
+  // operate in written pitch, never transpose twice.
+  const bpm=Math.max(40,Math.min(240,Number($('tempo').value)||120));
+  const midi=new Midi();
+  midi.header.name=scoreTitle;
+  midi.header.setTempo(bpm);
+  const track=midi.addTrack();
+  track.name=shownStemName(currentMidiStem);
+  track.instrument.number=currentMidiStem==='bass'?33:
+    currentMidiStem==='guitar'?24:currentMidiStem==='vocals'?53:0;
+  for(const n of notes){
+   track.addNote({midi:n.pitch,time:n.start,duration:n.duration,velocity:n.velocity||.7});
+  }
+  currentMidi=midi;
+  hybridChords=[];
+  btn('hybridChords',false);
+  await showAccurateScore();
+  for(const key of ['pdf','xml','midi','preview'])btn(key,true);
+  setStatus('NoteLab: '+notes.length+' note aggiornate. MIDI, MusicXML e PDF pronti per la nuova esportazione.');
+ }
+});
+
