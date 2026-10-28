@@ -174,7 +174,7 @@ function isolateDraft(notes){
   index:i,midi:n.pitch,start:Number(n.start.toFixed(3)),duration:Number(n.duration.toFixed(3))
  }));
 }
-export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,finishScore,exportFile,onResult}){
+export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,finishScore,exportFile,onResult,getRoleMeta=()=>null,getRoleFile=async()=>null}){
  const fileA=$('ggufAnalyst'),fileB=$('ggufReviewer'),button=$('ggufRun');
  const pause=$('ggufPause'),status=$('ggufStatus'),log=$('ggufLog'),
   download=$('ggufCleanWav'),partsDownload=$('ggufPartsZip'),
@@ -185,7 +185,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
  const say=text=>{status.textContent=text;diag.line(text);};
  const logText=text=>{log.textContent=text;};
  function inspect(){
-  return inspectGGUFSelection(fileA.files?.[0],fileB.files?.[0],reuseCheck.checked);
+  return inspectGGUFSelection(getRoleMeta('first')||fileA.files?.[0],getRoleMeta('second')||fileB.files?.[0],reuseCheck.checked);
  }
  function update(){
   // Critical UX: "Avvia" stays clickable so invalid/missing GGUFs can show
@@ -260,7 +260,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
   if(busy)return;
   busy=true;pauseRequested=false;diag.setActive(true);diag.stage('Avvio pipeline a blocchi da 10 s');update();
   const stem=$('isolateInstrument').value;
-  const secondFile=fileB.files?.[0],firstFile=$('ggufReuse').checked?secondFile:fileA.files?.[0];
+  const secondFile=getRoleMeta('second')||fileB.files?.[0],firstFile=$('ggufReuse').checked?secondFile:(getRoleMeta('first')||fileA.files?.[0]);
   const reportChunks=[];
   const timedOutModels=new Set(); // skip repeatedly stalled GGUFs across subsequent parts
   let processedParts=0;
@@ -322,7 +322,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     let analyst;
     try{
      if(timedOutModels.has(firstFile.name))throw Object.assign(new Error('GGUF già bloccato in un blocco precedente: salto IA1 per non perdere altro tempo.'),{ggufTimedOut:true});
-     analyst=await inference(firstFile,marker+' · GGUF 1',
+     analyst=await inference((await getRoleFile($('ggufReuse').checked?'second':'first'))||firstFile,marker+' · GGUF 1',
       'Sei revisore 1 di spartiti musicali. Ricevi SOLO misure e note MIDI estratte da Basic Pitch, NON audio. Segnala gli errori probabili senza inventare note. Rispondi SOLO JSON: {"instrument":"guitar","suspectedIssue":"testo","noise":"low|medium|high","suggestion":"breve testo"}.',
       JSON.stringify(data),say,diag);
     }catch(error){
@@ -336,7 +336,7 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
     let reviewer;
     try{
      if(timedOutModels.has(secondFile.name))throw Object.assign(new Error('GGUF già bloccato: salto IA2 e uso DSP conservativo.'),{ggufTimedOut:true});
-     reviewer=await inference(secondFile,marker+' · GGUF 2',
+     reviewer=await inference((await getRoleFile('second'))||secondFile,marker+' · GGUF 2',
       'Sei revisore 2 di spartiti e parametri DSP. Ricevi note MIDI esistenti e analisi IA1, ma NON ascolti l audio. Non inventare né alterare altezze. Rispondi SOLO JSON: {"strength":0.25,"lowcut":50,"highcut":7000,"suppressUnconfirmed":false,"rejectShorterThan":0.06,"reason":"breve testo"}. Tutti i filtri saranno vincolati a range sicuri.',
       JSON.stringify({...data,analyst:analyst.parsed}),say,diag);
     }catch(error){
@@ -433,5 +433,5 @@ export function initDualGGUF({getSong,getDuration,getIsolatedChunk,draftNotes,fi
   }
  };
  function pausePromise(){return new Promise(resolve=>setTimeout(resolve,0));}
- return {isBusy:()=>busy};
+ return {isBusy:()=>busy,refreshModels:onFilesChanged};
 }
