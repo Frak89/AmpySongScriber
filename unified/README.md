@@ -45,3 +45,18 @@ Qwen Rev5 showed text only: there was **no persistent history**, and previous te
 The GGUF in Android Downloads remains outside app storage and is not duplicated: after restart, select the same file again. Saving a model path/name is not a persistent Android Storage Access Framework permission. Qwen does not itself save audio stems or edit note events; it provides textual commentary based on the already computed music data. Use the respective WAV, MIDI, MusicXML and score PDF export buttons for actual music files.
 
 Build checks include `node scripts/test-qwen-history.mjs`. A working Android APK build still does not prove that WebAssembly can run Qwen GGUF within Android WebView memory limits; this needs testing on the physical device.
+
+## Rev7: choose ONE real instrument, then download WAV/MIDI/MusicXML/PDF
+
+The music-first interface no longer requires Qwen or a GGUF. It operates with three dedicated trained neural models:
+
+1. **HTDemucs 6s fp16weights** (Meta / StemSplitio MIT) truly isolates one requested audio source at a time: guitar, piano, bass, drums, or vocals. A sixth residual source exists for material not covered by these five. Its model is approximately 136 MB on disk but may require ~1.1 GB memory at inference and may not run successfully in Android WebView on all devices. Inference is performed in a cancellable Worker.
+2. **YAMNet** (Google Apache 2.0) classifies the residual mixture by likely timbre; it does not produce an isolated source for e.g. violin. The UI only labels residual as a **possible** instrument above a confidence threshold, never as a verified isolated violin.
+3. **Spotify Basic Pitch** (Apache 2.0) transcribes notes from the *selected isolated source*. A deterministic pitch-range and short-note cleanup is applied based on the instrument type. This improves obvious outliers but cannot guarantee exact notes. Drums are not accurately transcribed by Basic Pitch without a dedicated percussion model.
+
+For each isolated stem the app exposes **Download WAV**, **Download MIDI**, **Download MusicXML**, and **Download PDF**. The last three start a single-instrument transcription if not yet prepared. General score export buttons remain available. Only one WAV stem is held in memory at a time to limit RAM and output size. To isolate another instrument, select it and process the song again.
+
+This replaces the prior 4-source ONNX model. The source is available from:
+https://huggingface.co/StemSplitio/htdemucs-6s-onnx
+
+This Android target is not performance-tested on a Pixel 7 Pro. Model memory, long audio, and WebView constraints may still cause failures. No server is used during inference. Qwen files and experiments remain in git history but the Rev7 critical path is entirely music-model based.
