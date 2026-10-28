@@ -21,7 +21,7 @@
     "svg2pdf.js": "2.8.1",
     "@wllama/wllama": "3.8.1",
     "fft.js": "4.0.4",
-    "@capacitor/file-transfer": "1.0.7"
+    "@capacitor/file-transfer": "2.0.6"
   },
   "devDependencies": {
     "vite": "^5.4.20",
