@@ -9,6 +9,7 @@ import {Filesystem,Directory} from '@capacitor/filesystem';
 import {Share} from '@capacitor/share';
 import {Capacitor} from '@capacitor/core';
 import {encodeWav,validateWav} from './wav.js';
+import {audioStats} from './audio-quality.js';
 import {createMusicXML} from './notation.js';
 import {recognizeInstruments} from './instrument-ai.js';
 import {initDualGGUF} from './dual-gguf.js';
@@ -65,6 +66,9 @@ async function exportFile(blob,name){
 }
 function wav(audioBuffer){return encodeWav(audioBuffer);}
 async function exportWav(buf,filename){
+ const health=audioStats(buf);
+ if(health.peak<.00012||health.rms<.000016)
+  throw Error('WAV '+filename+' praticamente muto (RMS '+(20*Math.log10(Math.max(1e-9,health.rms))).toFixed(1)+' dBFS). Controlla la separazione o ascolta il mix originale.');
  const encoded=encodeWav(buf);
  await validateWav(encoded);
  return exportFile(encoded,filename);
@@ -73,6 +77,7 @@ async function openFile(file) {
  if(!file)return;
  audioFile=file; stems={};currentMidi=null;currentMidiStem=null;currentNotes=[];latestInstrumentPredictions=[];
  btn('separate',true);btn('transcribe',true);btn('zipall',false);btn('detectBpm',true);
+ btn('wavReference',true);
  for(const k of ['pdf','xml','midi','preview'])btn(k,false);
  btn('wavSelected',false);
  btn('identify',false);$('instrumentResults').textContent='';instrumentLabel='';activeStem=null;
@@ -255,6 +260,20 @@ async function separate(){
  }
 }
 $('separate').onclick=separate;
+$('wavReference').onclick=async()=>{
+ if(!audioFile)return;
+ btn('wavReference',false);
+ try{
+  setStatus('Esporto il WAV originale di riferimento: NON è separato per strumento.');
+  const source=await decodeAudio();
+  const h=audioStats(source);
+  setStatus('Audio originale: '+source.duration.toFixed(1)+' s; picco '+h.peak.toFixed(4)+'; RMS '+(20*Math.log10(Math.max(1e-9,h.rms))).toFixed(1)+' dBFS. Creo WAV PCM16…');
+  await exportWav(source,slug(audioFile.name)+'_ORIGINALE_MIX_NON_ISOLATO.wav');
+  setStatus('WAV originale esportato. Se questo si sente e la traccia isolata no, il problema è nella separazione / DSP.');
+ }catch(e){setStatus('Controllo WAV originale non riuscito: '+e.message);}
+ finally{btn('wavReference',true);}
+};
+
 $('wavSelected').onclick=async()=>{
  if(!activeStem||!stems[activeStem])return;
  try{await exportWav(stems[activeStem],slug(audioFile.name)+'_'+activeStem+'.wav');}
