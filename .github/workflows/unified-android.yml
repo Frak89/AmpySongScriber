@@ -79,6 +79,8 @@ jobs:
           node scripts/test-wav.mjs
           node scripts/test-notation.mjs
           node scripts/test-note-cleanup.mjs
+          node scripts/test-part-buffer.mjs
+          node scripts/test-dual-dsp.mjs
           node scripts/test-qwen-history.mjs
       - name: Bundle local offline GGUF inference WASM runtime
         working-directory: unified
