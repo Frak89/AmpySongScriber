@@ -434,4 +434,4 @@ qwenAssistant=initQwen(()=>({
  noteCount:currentNotes.length,
  notes:currentNotes,
  instrumentPredictions:latestInstrumentPredictions
-}));
+}),exportFile);
