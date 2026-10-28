@@ -22,6 +22,7 @@ let latestInstrumentPredictions=[];
 let activeStem=null;
 let instrumentLabel='';
 let instrumentPredictions=[];
+let currentSeparationEngine='';
 let demucsWorker=null, separationStopper=null, separationTimer=null;
 let separationStage='idle', separationProgress=0, separationStart=0;
 const fmtElapsed=(s)=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
@@ -163,7 +164,7 @@ async function runDemucsInWorker(buf,stem){
      terminateDemucsWorker();finish(null,d.result);
    }
   };
-  demucsWorker.postMessage({type:'separate',sampleRate:44100,stem,channels},channels.map(c=>c.buffer));
+  demucsWorker.postMessage({type:'separate',sampleRate:44100,stem,mode:$('separationMode')?.value||'auto',channels},channels.map(c=>c.buffer));
  });
 }
 
@@ -235,16 +236,17 @@ async function separate(){
   const result=await runDemucsInWorker(buf,stem);
   // Keep only one isolated instrument at a time to avoid out-of-memory on mobile.
   stems={[stem]:makeStemBuffer(result)};
+  currentSeparationEngine=result.engine||'Modello sconosciuto';
   activeStem=stem;currentMidi=null;currentNotes=[];currentMidiStem=null;
   instrumentLabel='';instrumentPredictions=[];latestInstrumentPredictions=[];
   for(const k of ['pdf','xml','midi','preview'])btn(k,false);
   renderStem();
   btn('zipall',true);
   btn('identify',stem==='other');
-  setStatus(shownStemName(stem)+' isolato offline. Puoi ascoltarlo o scaricare il WAV, oppure generare MIDI/MusicXML/PDF.');
+  setStatus(shownStemName(stem)+' isolato offline con '+currentSeparationEngine+'. Puoi ascoltarlo o scaricare il WAV, oppure generare MIDI/MusicXML/PDF.');
   if(stem==='other')await identifyResidual();
  }catch(e){
-  setStatus('Separazione interrotta: '+String(e?.message||e)+'. Prova un estratto breve o libera memoria: il modello 6s richiede molta RAM.');console.error(e);
+  setStatus('Separazione interrotta: '+String(e?.message||e)+'. Per il basso prova Modalità compatibile 4 tracce.');console.error(e);
  }finally{
   if(separationTimer){clearInterval(separationTimer);separationTimer=null;}
   $('cancel').hidden=true;$('progress').style.display='none';
