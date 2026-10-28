@@ -3,7 +3,7 @@
  *  in independent voices, tied notes, barline-crossing notes and rests.
  *  Basic Pitch is approximate; musical interpretation requires human editing.
  */
-const DIV=480, MEASURE=DIV*4;
+const DIV=480;
 const STEP=['C','C','D','D','E','F','F','G','G','A','A','B'];
 const ALTER=[0,1,0,1,0,0,1,0,1,0,1,0];
 const TYPES=[
@@ -33,8 +33,11 @@ function noteXML(event,voice){
  return '<note>'+tags+'<duration>'+dur+'</duration><voice>'+voice+'</voice><type>'+type+'</type>'+(event.dot?'<dot/>':'')+tie+notations+'</note>';
 }
 function restXML(dur,voice){return durationPieces(dur).map(p=>noteXML({...p,length:p.ticks,pitch:null},voice)).join('');}
-export function createMusicXML(notes,{title='AmpySongScriber',instrument='Strumento',bpm=120,grid=120,bass=false}={}){
+export function createMusicXML(notes,{title='AmpySongScriber',instrument='Strumento',bpm=120,grid=120,bass=false,meter='4/4'}={}){
  bpm=Math.min(240,Math.max(40,Number(bpm)||120));
+ if(!/^([2-9]|1[0-2])\/(4|8)$/.test(String(meter)))throw Error('Tempo metrico non supportato (es. 3/4, 6/8).');
+ const [beats,beatType]=String(meter).split('/').map(Number);
+ const MEASURE=DIV*beats*4/beatType;
  grid=[60,120,240].includes(Number(grid))?Number(grid):120;
  const quantized=notes.map((n,i)=>{
   const st=Math.max(0,quantize((Number(n.start)||0)*bpm/60*DIV,grid));
@@ -78,7 +81,7 @@ export function createMusicXML(notes,{title='AmpySongScriber',instrument='Strume
   const events=byMeasure[m];
   let xml='<measure number="'+(m+1)+'">';
   if(m===0){
-   xml+='<attributes><divisions>'+DIV+'</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>'+(bass?'F':'G')+'</sign><line>'+(bass?'4':'2')+'</line></clef></attributes><direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>'+Math.round(bpm)+'</per-minute></metronome></direction-type><sound tempo="'+Math.round(bpm)+'"/></direction>';
+   xml+='<attributes><divisions>'+DIV+'</divisions><key><fifths>0</fifths></key><time><beats>'+beats+'</beats><beat-type>'+beatType+'</beat-type></time><clef><sign>'+(bass?'F':'G')+'</sign><line>'+(bass?'4':'2')+'</line></clef></attributes><direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>'+Math.round(bpm)+'</per-minute></metronome></direction-type><sound tempo="'+Math.round(bpm)+'"/></direction>';
   }
   for(let voice=0;voice<groups.length;voice++){
    if(voice>0)xml+='<backup><duration>'+MEASURE+'</duration></backup>';
