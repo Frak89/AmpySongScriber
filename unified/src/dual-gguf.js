@@ -241,6 +241,13 @@ export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,expo
    }
    const session=partBuffer.sessionSummary();
    processedParts=session.parts.length;
+   reportChunks.push(...session.parts.map(p=>({
+    part:p.name,fromSec:p.startSample/FRAME_RATE,
+    toSec:(p.startSample+p.frames)/FRAME_RATE,
+    firstModel:p.firstModel,secondModel:p.secondModel,
+    draftNotes:p.draftNoteCount,reviewedNotes:p.finalNoteCount,
+    first:p.analysis,second:p.review,dsp:p.params
+   })));
    const allNotes=session.parts.flatMap(p=>p.finalNotes||[]);
    if(processedParts>totalParts)throw Error('I file parziali superano la durata del brano');
    download.disabled=processedParts===0;
@@ -281,8 +288,13 @@ export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,expo
     const timed=accepted.map(n=>({...n,start:Number((n.start+offset).toFixed(4))}));
     await partBuffer.appendPart(output,{
       draftNoteCount:draft.length,
+      draftNotes:draft,
       finalNoteCount:timed.length,
       finalNotes:timed,
+      analysis:analyst.parsed,
+      review:reviewer.parsed,
+      firstModel:firstFile.name,
+      secondModel:secondFile.name,
       params
     });
     allNotes.push(...timed);
