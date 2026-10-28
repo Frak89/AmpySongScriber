@@ -16,7 +16,7 @@ function quantile(arr,q){
  return arr[Math.min(arr.length-1,Math.max(0,Math.floor((arr.length-1)*q)))];
 }
 
-function clean(samples,opts){
+export function cleanSamples(samples,opts){
  const len=samples.length, strength=Math.min(.85,Math.max(0,Number(opts.strength)||0));
  const lowcut=Math.min(250,Math.max(0,Number(opts.lowcut)||0));
  const highcut=Math.min(10500,Math.max(1800,Number(opts.highcut)||10500));
@@ -69,7 +69,7 @@ function clean(samples,opts){
    normalization[off+i]+=w*w;
   }
   if(t%32===0){
-   self.postMessage({type:'progress',percent:Math.round(t/total*100)});
+   if(typeof self!=='undefined')self.postMessage({type:'progress',percent:Math.round(t/total*100)});
   }
  }
  const clean=new Float32Array(len);
@@ -79,10 +79,10 @@ function clean(samples,opts){
  }
  return clean;
 }
-self.onmessage=e=>{
+if(typeof self!=='undefined')self.onmessage=e=>{
  if(e.data?.type!=='clean')return;
  try{
-  const output=clean(e.data.samples,e.data.params||{});
+  const output=cleanSamples(e.data.samples,e.data.params||{});
   self.postMessage({type:'done',samples:output},[output.buffer]);
  }catch(err){self.postMessage({type:'error',message:String(err?.message||err)});}
 };
