@@ -35,6 +35,14 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <option value="drums">🥁 Batteria</option>
 <option value="other">🔍 Identifica altro strumento (residuo)</option>
 </select></div>
+<div class="actions" style="margin:10px 0">
+ <label for="separationMode">Motore</label>
+ <select id="separationMode">
+ <option value="auto" selected>Auto · 4 tracce per basso/voce/batteria, 6 per chitarra/piano</option>
+ <option value="compatible">Compatibile · 4 tracce (no chitarra/piano separati)</option>
+ <option value="six">Sperimentale · 6 tracce (molta RAM)</option>
+ </select>
+</div>
 <div class="actions"><button id="separate" disabled>🎚️ Isola strumento</button><button id="wavSelected" class="secondary" disabled>⬇ Scarica WAV isolato</button><button id="cancel" class="secondary" hidden>✕ Annulla</button><button id="zipall" class="secondary" disabled>📦 Scarica ZIP WAV</button></div>
 <progress id="progress" value="0" max="100" style="display:none"></progress><p id="status" role="status">Modello integrato nella app: nessun server richiesto.</p><div id="tracks"></div><div class="actions" style="margin-top:12px"><button id="identify" class="secondary" disabled>🧠 Identifica strumento residuo (IA locale)</button></div><div id="instrumentResults" class="sub" aria-live="polite"></div></section>
 <section class="card"><h2>3. Crea note e spartito dello strumento</h2><p class="sub">IA musicale · Basic Pitch trascrive solo la traccia isolata selezionata. Un filtro specifico per lo strumento riduce note fuori estensione e duplicazioni. L’esportazione PDF/MusicXML resta modificabile; la batteria richiede ancora un modello di trascrizione ritmica dedicato.</p>
@@ -66,7 +74,7 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
    <strong>IA 1 · Analisi del suono</strong>
    <label for="ggufAnalyst" class="filelabel">📂 Seleziona GGUF 1 da Download</label>
    <input id="ggufAnalyst" type="file" accept=".gguf,application/octet-stream"/>
-   <span class="sub" id="ggufAnalystLabel">Nessun modello selezionato</span>
+   <span class="sub" id="ggufAnalystLabel">Nessun modello selezionato</span><small class="sub">I modelli *Embedding* e *Reranker* non producono testo. In modalità riutilizzo puoi lasciarli non selezionati.</small>
   </div>
   <div class="model-card">
    <strong>IA 2 · Revisione e parametri di pulizia</strong>
@@ -76,6 +84,10 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
   </div>
  </div>
  <div class="actions" style="margin-top:16px">
+  <label style="display:flex;align-items:center;gap:8px;padding:9px 0;color:#dce4f7;max-width:100%">
+    <input type="checkbox" id="ggufReuse" style="width:21px;height:21px" checked/>
+    Usa Qwen3 generativo (GGUF 2) anche per IA 1, con un ruolo diverso
+  </label>
   <button id="ggufRun" disabled>🧠 Avvia / Riprendi blocchi da 10 s</button>
   <button id="ggufPause" class="secondary" disabled>⏸ Pausa dopo questo blocco</button>
   <button id="ggufCleanWav" class="secondary" disabled>⬇ Unisci e salva WAV finale</button>
