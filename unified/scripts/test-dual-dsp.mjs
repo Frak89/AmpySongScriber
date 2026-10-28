@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {cleanSamples} from '../src/audio-cleaner-worker.js';
-import {bounds,extractJSON,measureAudio} from '../src/dual-gguf.js';
+import {bounds,extractJSON,measureAudio,isGenerativeGGUF} from '../src/dual-gguf.js';
 const frames=22050;
 const wave=new Float32Array(frames);
 for(let i=0;i<frames;i++){
@@ -21,3 +21,7 @@ assert.equal(report.strength,.3);
 const features=measureAudio({duration:1,sampleRate:22050,getChannelData:()=>wave});
 assert.ok(features.rmsDb>-20&&features.peakDb<0);
 console.log('PASS: FFT cleaner finite audio, bounded parameters, JSON parsing, signal features');
+
+assert.equal(isGenerativeGGUF({name:'Ace-Qwen3-Embedding-0.6B-BF16.gguf',size:1141*1048576}),false);
+assert.equal(isGenerativeGGUF({name:'Qwen3-0.6B-Q4_K_M.gguf',size:378*1048576}),true);
+console.log('PASS: embedding GGUF rejected and generative Qwen3 accepted');
