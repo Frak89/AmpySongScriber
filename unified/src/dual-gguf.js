@@ -11,7 +11,9 @@ import {saveAnalysis} from './qwen-history.js';
 import {createPartBuffer,reopenLastPartBuffer} from './part-buffer.js';
 const $=id=>document.getElementById(id);
 const MAX=1.5*1024*1024*1024;
-const fileValid=f=>f&&/\.gguf$/i.test(f.name)&&f.size>=80*1024*1024&&f.size<=MAX;
+export const isGenerativeGGUF=f=>Boolean(f&&/\.gguf$/i.test(f.name)
+ &&f.size>=80*1024*1024&&f.size<=MAX
+ &&!/embedding|embed[-_.]|rerank|reward[-_.]|clip[-_.]|projector/i.test(f.name));
 const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
 const DB=Object.freeze({
   bass:{lowcut:[30,85],highcut:[1800,6500],defaultLow:36,defaultHigh:5000},
@@ -78,7 +80,7 @@ export function measureAudio(buf){
  };
 }
 async function inference(file,role,system,user,onStatus){
- if(!fileValid(file))throw Error(role+': file GGUF non selezionato o dimensione non valida');
+ if(!isGenerativeGGUF(file))throw Error(role+': file GGUF non selezionato o dimensione non valida');
  let llm=null;
  try{
   const {Wllama}=await import('@wllama/wllama/esm/index.js');
@@ -155,14 +157,27 @@ export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,expo
  const say=text=>{status.textContent=text;};
  const logText=text=>{log.textContent=text;};
  function update(){
-  button.disabled=busy||!fileValid(fileA.files?.[0])||!fileValid(fileB.files?.[0]);
+  const reuse=$('ggufReuse').checked;
+  const first=reuse?fileB.files?.[0]:fileA.files?.[0];
+  const second=fileB.files?.[0];
+  button.disabled=busy||!isGenerativeGGUF(first)||!isGenerativeGGUF(second);
   pause.disabled=!busy;
  }
- for(const f of [fileA,fileB])f.addEventListener('change',()=>{
-  update();
-  if(!busy&&fileValid(fileA.files?.[0])&&fileValid(fileB.files?.[0]))
-   say('GGUF 1 e GGUF 2 pronti. Verranno caricati uno alla volta per ogni blocco.');
- });
+ const reuseCheck=$('ggufReuse');
+ for(const f of [fileA,fileB])f.addEventListener('change',update);
+ reuseCheck.addEventListener('change',update);
+ // Reject embedding GGUF early, before opening WASM or any audio worker.
+ function warnInvalid(){
+  if(fileA.files?.[0]&&!isGenerativeGGUF(fileA.files[0])&&!reuseCheck.checked)
+   say('GGUF 1 non generativo (Embedding/Reranker): scegli un GGUF di chat, oppure abilita il riuso di Qwen3.');
+  else if(fileB.files?.[0]&&!isGenerativeGGUF(fileB.files[0]))
+   say('GGUF 2 non generativo: serve Qwen3-0.6B-Q4_K_M.gguf o equivalente chat.');
+  else if(!busy&&!button.disabled)
+   say(reuseCheck.checked?'Qwen3 verrà usato per entrambi i ruoli, caricandolo due volte in sequenza.':
+       'Due modelli generativi pronti: IA 1 poi IA 2.');
+ }
+ for(const f of [fileA,fileB])f.addEventListener('change',warnInvalid);
+ reuseCheck.addEventListener('change',warnInvalid);
  pause.onclick=()=>{
   if(!busy)return;
   pauseRequested=true;
@@ -216,13 +231,12 @@ export function initDualGGUF({getSource,ensureSource,draftNotes,finishScore,expo
   if(busy)return;
   busy=true;pauseRequested=false;update();
   const stem=$('isolateInstrument').value;
-  const firstFile=fileA.files?.[0],secondFile=fileB.files?.[0];
+  const secondFile=fileB.files?.[0],firstFile=$('ggufReuse').checked?secondFile:fileA.files?.[0];
   const reportChunks=[];
   let processedParts=0;
   try{
-   if(!fileValid(firstFile)||!fileValid(secondFile))
-    throw Error('Seleziona due GGUF dalla cartella Download.');
-   if(firstFile===secondFile)throw Error('Seleziona due file GGUF indipendenti.');
+   if(!isGenerativeGGUF(firstFile)||!isGenerativeGGUF(secondFile))
+    throw Error('Serve un GGUF GENERATIVO. Il file Ace-Qwen3-Embedding non produce risposte di chat. Usa Qwen3-0.6B-Q4_K_M.gguf anche in entrambe le fasi.');
    say('Isolamento strumento selezionato in corso…');
    await ensureSource(stem);
    const source=getSource(stem);
