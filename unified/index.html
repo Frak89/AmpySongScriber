@@ -109,6 +109,24 @@ footer{font-size:11px;color:#9ca5b8;text-align:center;padding:28px 8px}
 <p class="sub">Per uno spartito più fedele seleziona prima una traccia strumentale separata. Il BPM influenza pause e durate; se il tempo reale è diverso, puoi modificarlo e premere “Anteprima MusicXML”.</p>
 <progress id="midiProgress" max="100" value="0" style="display:none"></progress><div id="score"></div>
 <div class="actions" style="margin-top:14px"><button class="secondary" id="preview" disabled>🎼 Anteprima MusicXML</button><button class="secondary" id="pdf" disabled>⬇ PDF spartito</button><button class="secondary" id="xml" disabled>⬇ MusicXML · MuseScore</button><button class="secondary" id="midi" disabled>⬇ MIDI</button></div>
+<div class="model-library" style="margin-top:16px">
+ <div class="line" style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+  <strong>NoteLab · correzione manuale del MIDI</strong>
+  <button id="hybridEditOpen" class="secondary" disabled>✎ Apri / Chiudi editor</button>
+ </div>
+ <p class="sub">Modifica l’altezza MIDI, l’inizio e la durata delle note riconosciute. Le correzioni si applicano immediatamente agli export MIDI, MusicXML e PDF: non devi ritrascrivere l’audio.</p>
+ <div id="hybridEditorPanel" hidden>
+  <p id="hybridEditorSummary" class="sub"></p>
+  <div style="overflow-x:auto" id="hybridEditor"></div>
+  <div class="actions" style="margin-top:10px">
+   <button id="hybridEditPrev" class="secondary">← 25 note precedenti</button>
+   <button id="hybridEditNext" class="secondary">25 note successive →</button>
+   <button id="hybridEditAdd" class="secondary">+ Nota</button>
+   <button id="hybridEditSave">✓ Applica correzioni agli spartiti</button>
+   <button id="hybridEditCancel" class="secondary">Annulla</button>
+  </div>
+ </div>
+</div>
 <p class="notice">MusicXML è apribile e modificabile in MuseScore Studio. Il motore desktop GPL di MuseScore non è copiato nell'APK.</p></section>
 <section class="card" id="dualPanel">
  <h2>4. Due GGUF offline in sequenza</h2>
